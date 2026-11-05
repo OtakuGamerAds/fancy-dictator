@@ -14,6 +14,7 @@ const {
   globalShortcut,
   ipcMain,
   nativeImage,
+  protocol,
   screen,
   session,
 } = require("electron");
@@ -22,6 +23,7 @@ const path = require("path");
 const store = require("./store.cjs");
 const updater = require("./updater.cjs");
 const models = require("./models.cjs");
+const audio = require("./audio.cjs");
 
 /**
  * The window never changes size: resizing a transparent window makes Windows flash the old
@@ -351,10 +353,26 @@ function registerIpc() {
     applyLoginItem();
     return { settings, hotkeyError };
   });
-  ipcMain.handle("history:get", () => store.getHistory());
-  ipcMain.handle("history:add", (_e, entry) => store.addHistory(entry));
-  ipcMain.handle("history:clear", () => store.clearHistory());
-  ipcMain.handle("history:replace", (_e, entries) => store.replaceHistory(entries));
+  // Every list of messages says how many audio clips each one has saved.
+  const withAudio = (history) => history.map((entry) => ({ ...entry, audioClips: audio.count(entry.id) }));
+  ipcMain.handle("history:get", () => withAudio(store.getHistory()));
+  ipcMain.handle("history:add", (_e, entry) => {
+    const before = store.getHistory();
+    const history = store.addHistory(entry);
+    // Past the 50 kept messages the oldest is dropped for good (there is no undo): its audio too.
+    audio.remove(before.filter((old) => !history.some((kept) => kept.id === old.id)).map((old) => old.id));
+    return withAudio(history);
+  });
+  ipcMain.handle("history:clear", () => withAudio(store.clearHistory()));
+  ipcMain.handle("history:replace", (_e, entries) => withAudio(store.replaceHistory(entries)));
+  ipcMain.handle("audio:add-clip", (_e, id, pcm) => audio.addClip(id, pcm));
+  // Deleted messages can no longer be brought back: erase their audio, unless one was restored.
+  ipcMain.handle("audio:discard", (_e, ids) => {
+    const history = store.getHistory();
+    const gone = (Array.isArray(ids) ? ids : []).filter((id) => !history.some((entry) => entry.id === id));
+    audio.remove(gone);
+  });
+
   ipcMain.handle("clipboard:write", (_e, text) => clipboard.writeText(String(text ?? "")));
   ipcMain.on("window:content-height", (_e, height) => keepOnScreen(Number(height)));
   ipcMain.on("window:hit-rects", (_e, rects) => {
@@ -453,6 +471,25 @@ async function runSnapshots() {
 
 // ── App ───────────────────────────────────────────────────────────────────
 
+// Messages' audio plays from fd-audio://audio/<id>/<clip>: Chromium will not play blob: URLs on a
+// page loaded from a file, and a privileged scheme can be streamed by <audio>.
+protocol.registerSchemesAsPrivileged([
+  { scheme: "fd-audio", privileges: { standard: true, secure: true, stream: true, supportFetchAPI: true } },
+]);
+
+function serveAudio() {
+  protocol.handle("fd-audio", (request) => {
+    const [id = "", clip = ""] = new URL(request.url).pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const index = Number(clip);
+    if (!Number.isInteger(index) || index < 0) return new Response(null, { status: 404 });
+    const bytes = SNAPSHOT ? audio.sample(index === 0 ? 7 : 4) : audio.get(id, index);
+    if (!bytes) return new Response(null, { status: 404 });
+    return new Response(bytes, {
+      headers: { "content-type": "audio/wav", "content-length": String(bytes.byteLength), "cache-control": "no-store" },
+    });
+  });
+}
+
 // Snapshot runs skip the lock so they work while the real app is open.
 if (!SNAPSHOT && !app.requestSingleInstanceLock()) {
   app.quit();
@@ -460,11 +497,13 @@ if (!SNAPSHOT && !app.requestSingleInstanceLock()) {
   app.on("second-instance", showWindow);
   app.whenReady().then(() => {
     settings = store.getSettings();
+    if (!SNAPSHOT) audio.prune(store.getHistory().map((entry) => entry.id));
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(permission === "media" || permission === "clipboard-sanitized-write");
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
     registerIpc();
+    serveAudio();
     createWindow();
     if (SNAPSHOT) return;
     const error = registerHotkey(settings.hotkey);

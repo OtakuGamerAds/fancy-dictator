@@ -15,6 +15,8 @@ export interface HistoryEntry {
   text: string;
   createdAt: number;
   durationMs: number;
+  /** How many recordings of the message are saved (set by the main process, electron/audio.cjs). */
+  audioClips?: number;
 }
 
 /** Mirrors electron/updater.cjs (after T3 Code's DesktopUpdateState). */
@@ -42,6 +44,10 @@ export interface DesktopApi {
   addHistory(entry: HistoryEntry): Promise<HistoryEntry[]>;
   clearHistory(): Promise<HistoryEntry[]>;
   replaceHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]>;
+  /** Save one recording's 16 kHz 16-bit PCM as the message's next audio clip. */
+  addAudioClip(id: string, pcm: ArrayBuffer): Promise<boolean>;
+  /** Erase the audio of deleted messages (any that are back in the history are kept). */
+  discardAudio(ids: string[]): Promise<void>;
   copy(text: string): Promise<void>;
   reportContentHeight(height: number): void;
   /** The parts of the window that take the mouse (the card, open dropdowns); the rest clicks through. */

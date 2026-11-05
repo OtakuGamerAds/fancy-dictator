@@ -9,6 +9,8 @@ Copy the text, or send it to your recent messages.
 - **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
   the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
   so it always opens clean.
+- Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"
+  adds the next): press ▶ on one to listen again.
 - The languages Soniox listens for are picked at the bottom-left of the box.
 - The toolbar has settings and updates at the left; the messages arrow and **—** (hide) at
   the right.
@@ -53,7 +55,9 @@ pnpm probe      # check mic → worklet → Soniox socket (expects a 401 for the
 | Part | Source |
 | --- | --- |
 | Stack, theme tokens, UI primitives (`src/components/ui`), composer metrics, undo notice | [T3 Code](https://github.com/pingdotgg/t3code), MIT — see `THIRD_PARTY_LICENSE_T3CODE.txt` |
-| Soniox real-time session settings (`stt-rt-v5`, endpoint detection) | live-caption-sermons |
+| Soniox real-time session settings (endpoint detection) | live-caption-sermons |
 
-Settings and history are stored in `%APPDATA%/fancy-dictator`. The Soniox key is
+Settings, history and the messages' audio (`audio/`, 16 kHz WAV data, about 2 MB a minute;
+erased with its message once `Ctrl+Z` can no longer bring it back) are stored in
+`%APPDATA%/fancy-dictator`. The Soniox key is
 encrypted with Windows' DPAPI through Electron `safeStorage`.

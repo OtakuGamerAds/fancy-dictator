@@ -83,7 +83,12 @@ export function App() {
     setHistory(await window.api.replaceHistory(remaining));
     // Nothing left to show: fold the drawer up (Ctrl+Z still brings the messages back).
     if (remaining.length === 0) setHistoryOpen(false);
-    showUndoNotice({ action: ids.length > 1 ? "Cleared" : "Deleted", undo: () => restoreEntries(removed) });
+    showUndoNotice({
+      action: ids.length > 1 ? "Cleared" : "Deleted",
+      undo: () => restoreEntries(removed),
+      // Once Ctrl+Z can no longer bring them back, their audio is erased too.
+      expire: () => void window.api.discardAudio(removed.map((entry) => entry.id)),
+    });
   };
 
   // The box's text, readable right away (state only updates on the next render). Settled
@@ -109,7 +114,29 @@ export function App() {
   const pendingRef = useRef("");
   const textAtStart = useRef("");
 
+  // The recordings made into the box and not yet saved with its message, one clip each
+  // (a clip is the audio chunks sent to Soniox during one recording).
+  const boxClips = useRef<ArrayBuffer[][]>([]);
+
+  /** Save a message, with each recording made into it since it was last saved as a clip. */
+  const saveEntry = async (entry: HistoryEntry) => {
+    const clips = boxClips.current;
+    boxClips.current = [];
+    for (const chunks of clips) {
+      if (chunks.length === 0) continue;
+      const pcm = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
+      let offset = 0;
+      for (const chunk of chunks) {
+        pcm.set(new Uint8Array(chunk), offset);
+        offset += chunk.byteLength;
+      }
+      await window.api.addAudioClip(entry.id, pcm.buffer);
+    }
+    setHistory(await window.api.addHistory(entry));
+  };
+
   const clearText = () => {
+    boxClips.current = [];
     writeText("");
     setDurationMs(0);
     entryId.current = null;
@@ -131,7 +158,7 @@ export function App() {
     const trimmed = value.trim();
     if (trimmed) {
       const entry = { id: entryId.current ?? crypto.randomUUID(), text: trimmed, createdAt: Date.now(), durationMs: duration };
-      setHistory(await window.api.addHistory(entry));
+      await saveEntry(entry);
       if (showInHistory) {
         // Open the list on just what was cleared this session, so it is seen landing there.
         setSessionIds((ids) => (ids.includes(entry.id) ? ids : [...ids, entry.id]));
@@ -176,6 +203,8 @@ export function App() {
       spokenEnd.current = null;
       pendingRef.current = "";
       textAtStart.current = textRef.current;
+      const clip: ArrayBuffer[] = [];
+      boxClips.current.push(clip);
       setPendingText("");
       setLevels(Array(LEVEL_BARS).fill(0));
       setCopied(false);
@@ -196,6 +225,7 @@ export function App() {
             setPendingText(pending);
           },
           onLevel: (level) => setLevels((prev) => [...prev.slice(1), level]),
+          onAudio: (pcm) => clip.push(pcm),
           onError: (message) => {
             setError(message);
             sessionRef.current?.cancel();
@@ -247,6 +277,7 @@ export function App() {
     setPhase("idle");
     const combined = textRef.current.trim();
     if (combined === textAtStart.current.trim()) {
+      boxClips.current.pop(); // nothing was said: keep no clip of it
       if (!combined) setError("No speech detected.");
       return { text: combined, durationMs: latest.current.durationMs };
     }
@@ -255,7 +286,7 @@ export function App() {
     writeText(combined);
     setDurationMs(duration);
     const entry: HistoryEntry = { id: entryId.current, text: combined, createdAt: Date.now(), durationMs: duration };
-    setHistory(await window.api.addHistory(entry));
+    await saveEntry(entry);
     return { text: combined, durationMs: duration };
   };
 
@@ -507,9 +538,9 @@ export function App() {
 // ── Snapshot mode: `pnpm snapshot` renders every view to a PNG ───────────
 
 const SAMPLE_HISTORY: HistoryEntry[] = [
-  { id: "1", text: "مرحبا، بدي اكتب رسالة سريعة لفريق العمل", createdAt: Date.now() - 2 * 60000, durationMs: 18000 },
-  { id: "1b", text: "بدي أشيل الزر كلياته تبع الإنسيرت بشكل عام، لأنه حاسس إنه ما إله أي لزوم، وأنا دايمًا بستخدم الزر تبع كوبي لما بدي أستخدم شي. بإمكانك إنك تشيله بالكامل مشان ينضف التطبيق بشكل عام. وكمان الكنترول إنتر هي مو الطريقة الوحيدة لإنه تنضاف المسج تحت، وإنما كيف بتي 3 كود نحن في عنا الزر تبع سند نفس هذا الزر بقلب التكست فيلد كمان يكون موجود.", createdAt: Date.now() - 3 * 60000, durationMs: 90000 },
-  { id: "2", text: "شو رأيك نحط الإعدادات تحت", createdAt: Date.now() - 15 * 60000, durationMs: 7000 },
+  { id: "1", text: "مرحبا، بدي اكتب رسالة سريعة لفريق العمل", createdAt: Date.now() - 2 * 60000, durationMs: 18000, audioClips: 2 },
+  { id: "1b", text: "بدي أشيل الزر كلياته تبع الإنسيرت بشكل عام، لأنه حاسس إنه ما إله أي لزوم، وأنا دايمًا بستخدم الزر تبع كوبي لما بدي أستخدم شي. بإمكانك إنك تشيله بالكامل مشان ينضف التطبيق بشكل عام. وكمان الكنترول إنتر هي مو الطريقة الوحيدة لإنه تنضاف المسج تحت، وإنما كيف بتي 3 كود نحن في عنا الزر تبع سند نفس هذا الزر بقلب التكست فيلد كمان يكون موجود.", createdAt: Date.now() - 3 * 60000, durationMs: 90000, audioClips: 1 },
+  { id: "2", text: "شو رأيك نحط الإعدادات تحت", createdAt: Date.now() - 15 * 60000, durationMs: 7000, audioClips: 1 },
   { id: "3", text: "Fix the hotkey bug before the release", createdAt: Date.now() - 60 * 60000, durationMs: 5000 },
   { id: "4", text: "بكرا الساعة عشرة منراجع الكود", createdAt: Date.now() - 26 * 3600000, durationMs: 9000 },
 ];

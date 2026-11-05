@@ -4,6 +4,7 @@
  * ("Deleted, Ctrl+Z to undo"), repeats of the same action group into one ("Deleted 3"),
  * and after 5 seconds the notice expires and the actions can no longer be undone.
  * T3 keeps the state in zustand; here a tiny store with useSyncExternalStore does the same.
+ * One addition: an action can say what to do once it can no longer be undone (`expire`).
  */
 import { useSyncExternalStore } from "react";
 
@@ -12,6 +13,8 @@ export type UndoAction = "Deleted" | "Cleared" | "Copied";
 type UndoOptions = {
   action: UndoAction;
   undo: () => void | Promise<void>;
+  /** Runs when the notice expires without this action being undone. */
+  expire?: () => void;
 };
 
 type UndoNotice = {
@@ -96,7 +99,9 @@ export function showUndoNotice(options: UndoOptions) {
   refreshNotice();
   clearTimeout(expiry);
   expiry = setTimeout(() => {
+    const expired = liveUndos;
     liveUndos = [];
     refreshNotice();
+    for (const { expire } of expired) expire?.();
   }, 5_000);
 }

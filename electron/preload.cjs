@@ -16,6 +16,8 @@ contextBridge.exposeInMainWorld("api", {
   addHistory: (entry) => ipcRenderer.invoke("history:add", entry),
   clearHistory: () => ipcRenderer.invoke("history:clear"),
   replaceHistory: (entries) => ipcRenderer.invoke("history:replace", entries),
+  addAudioClip: (id, pcm) => ipcRenderer.invoke("audio:add-clip", id, pcm),
+  discardAudio: (ids) => ipcRenderer.invoke("audio:discard", ids),
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   reportContentHeight: (height) => ipcRenderer.send("window:content-height", height),
   setHitRects: (rects) => ipcRenderer.send("window:hit-rects", rects),

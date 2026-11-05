@@ -1,6 +1,7 @@
 import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { InlineAudioPreview } from "~/components/files/InlineAudioPreview";
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
 import { useUndoNotice } from "~/lib/undoNotice";
@@ -88,6 +89,10 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
   );
 }
 
+/** T3 Code's TimelineUserMessageRow: chips inside a user message take the message's ink when it sets one. */
+const BUBBLE_CHIP_CLASS_NAME =
+  "[&_[data-slot=context-chip]]:[--context-chip-ink:var(--context-chip-message,var(--context-chip-accent))]";
+
 function HistoryMessage({
   entry,
   onCopy,
@@ -124,8 +129,26 @@ function HistoryMessage({
       <div
         dir={textDirection(entry.text)}
         data-no-drag
-        className="min-w-0 max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground text-sm leading-relaxed"
+        className={cn(
+          "min-w-0 max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground text-sm leading-relaxed",
+          BUBBLE_CHIP_CLASS_NAME,
+        )}
       >
+        {/* The voice it was dictated with, one clip per recording, above the text, as T3 lists
+            the audio sent with a message. */}
+        {entry.audioClips ? (
+          <div className="mb-2 flex max-w-full flex-col gap-1">
+            {Array.from({ length: entry.audioClips }, (_, clip) => (
+              <InlineAudioPreview
+                key={clip}
+                name={entry.audioClips === 1 ? "Recording" : `Recording ${clip + 1}`}
+                audioId={entry.id}
+                clip={clip}
+                variant="chip"
+              />
+            ))}
+          </div>
+        ) : null}
         {/* The clamp is on the text itself, not the padded bubble, so no half line peeks out. */}
         <p
           ref={textRef}

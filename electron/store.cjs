@@ -80,16 +80,21 @@ function getHistory() {
 }
 
 /** Add an entry at the top; an entry with the same id (a continued dictation) replaces it. */
+/** The page sends entries back with `audioClips` on them; that is worked out when read, not stored. */
+function stored({ audioClips: _audioClips, ...entry }) {
+  return entry;
+}
+
 function addHistory(entry) {
   const others = getHistory().filter((item) => item.id !== entry.id);
-  const history = [entry, ...others].slice(0, MAX_HISTORY);
+  const history = [stored(entry), ...others].slice(0, MAX_HISTORY);
   writeJson("history.json", history);
   return history;
 }
 
 /** Replace the whole list (deleting one entry, or undoing a delete). */
 function replaceHistory(entries) {
-  const history = (Array.isArray(entries) ? entries : []).slice(0, MAX_HISTORY);
+  const history = (Array.isArray(entries) ? entries : []).slice(0, MAX_HISTORY).map(stored);
   writeJson("history.json", history);
   return history;
 }

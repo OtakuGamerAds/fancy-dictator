@@ -104,6 +104,9 @@
   --update: var(--primary);
   --update-foreground: oklch(0.707 0.165 254.624);
   --z-sheet: 46;
+  /* T3 Code's file chip color (used for audio), as its theme solves it for the dark theme:
+     the accent lightened to 5:1 contrast on the canvas and on the message bubble. */
+  --context-chip-file: #0f95d2;
   --thread-details-panel-width: 17.5rem;
 
   /* T3 Code's appearance-contrast aliases, referenced by its UI primitives. */

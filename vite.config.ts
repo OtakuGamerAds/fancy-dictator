@@ -11,6 +11,7 @@ const CSP = [
   "font-src 'self' data:",
   "img-src 'self' data:",
   "connect-src 'self' wss://stt-rt.soniox.com",
+  "media-src fd-audio:", // the messages' audio (electron/main.cjs)
 ].join("; ");
 
 const contentSecurityPolicy: Plugin = {
