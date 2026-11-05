@@ -1,0 +1,374 @@
+/**
+ * Fancy Dictator — main process.
+ *
+ * One frameless, transparent window of a fixed size. The card inside it (T3 Code's
+ * composer width at most, 736px) animates its own size; the empty rest of the window
+ * lets clicks through.
+ */
+const {
+  app,
+  BrowserWindow,
+  Menu,
+  Tray,
+  clipboard,
+  globalShortcut,
+  ipcMain,
+  nativeImage,
+  screen,
+  session,
+} = require("electron");
+const fs = require("fs");
+const path = require("path");
+const store = require("./store.cjs");
+const updater = require("./updater.cjs");
+
+/**
+ * The window never changes size: resizing a transparent window makes Windows flash the old
+ * frame for a moment. It is as wide as T3 Code's composer and tall enough for every view;
+ * the card animates inside it, and the transparent rest lets clicks through (see
+ * "window:ignore-mouse").
+ */
+const WIDTH = 736;
+const HEIGHT = 760;
+const DEV_URL = process.env.VITE_DEV_SERVER_URL;
+const SNAPSHOT = process.env.FD_SNAPSHOT === "1";
+
+let win = null;
+let tray = null;
+let settings = null;
+let activeHotkey = null;
+let quitting = false;
+
+// ── Window ────────────────────────────────────────────────────────────────
+
+/**
+ * The window is positioned by its top-center. The card sits against the window's right edge
+ * (so the ✕ button never moves), so by default the window is shifted left until the
+ * collapsed card is centered on screen.
+ */
+function defaultAnchor() {
+  const { workArea } = screen.getPrimaryDisplay();
+  return {
+    cx: Math.round(workArea.x + workArea.width / 2 - (WIDTH - 380) / 2),
+    y: Math.round(workArea.y + workArea.height * 0.18),
+  };
+}
+
+/** Use the saved anchor only if it is still on a connected display. */
+function savedAnchor() {
+  const pos = settings.windowAnchor;
+  if (!pos || !Number.isFinite(pos.cx) || !Number.isFinite(pos.y)) return null;
+  const onScreen = screen.getAllDisplays().some(({ workArea: a }) => {
+    return pos.cx > a.x + 40 && pos.cx < a.x + a.width - 40 && pos.y >= a.y && pos.y < a.y + a.height - 40;
+  });
+  return onScreen ? pos : null;
+}
+
+function createWindow() {
+  const anchor = savedAnchor() ?? defaultAnchor();
+  const { workArea } = screen.getDisplayNearestPoint({ x: anchor.cx, y: anchor.y });
+  win = new BrowserWindow({
+    x: Math.round(anchor.cx - WIDTH / 2),
+    y: anchor.y,
+    width: WIDTH,
+    height: Math.min(HEIGHT, workArea.height),
+    frame: false,
+    transparent: true,
+    backgroundColor: "#00000000",
+    hasShadow: false,
+    resizable: false,
+    maximizable: false,
+    minimizable: false,
+    fullscreenable: false,
+    skipTaskbar: true,
+    alwaysOnTop: true,
+    show: false,
+    title: "Fancy Dictator",
+    webPreferences: {
+      preload: path.join(__dirname, "preload.cjs"),
+      contextIsolation: true,
+      nodeIntegration: false,
+      sandbox: true,
+      backgroundThrottling: false,
+    },
+  });
+  win.setAlwaysOnTop(true, "screen-saver");
+
+  const query = SNAPSHOT ? { snapshot: "1" } : undefined;
+  if (DEV_URL) win.loadURL(SNAPSHOT ? `${DEV_URL}?snapshot=1` : DEV_URL);
+  else win.loadFile(path.join(__dirname, "..", "dist", "index.html"), { query });
+
+  win.once("ready-to-show", () => {
+    if (SNAPSHOT) runSnapshots();
+    else showWindow();
+  });
+
+  // However the window gets hidden, a recording in progress is stopped and kept.
+  win.on("hide", () => {
+    win.webContents.send("app:hidden");
+  });
+  win.on("moved", () => {
+    if (!win) return;
+    const { x, y, width } = win.getBounds();
+    settings = store.saveSettings({ windowAnchor: { cx: Math.round(x + width / 2), y } });
+  });
+  win.on("close", (event) => {
+    if (quitting) return;
+    event.preventDefault();
+    hideWindow();
+  });
+}
+
+function showWindow() {
+  if (!win) return;
+  win.show();
+  win.focus();
+}
+
+function hideWindow() {
+  if (!win) return;
+  win.hide();
+}
+
+/** If the card would run past the bottom of the screen, move the window up just enough. */
+function keepOnScreen(contentHeight) {
+  if (!win || !Number.isFinite(contentHeight)) return;
+  const bounds = win.getBounds();
+  const { workArea: a } = screen.getDisplayMatching(bounds);
+  const bottom = a.y + a.height;
+  if (bounds.y + contentHeight <= bottom) return;
+  win.setPosition(bounds.x, Math.max(a.y, Math.round(bottom - contentHeight)));
+}
+
+// ── Hotkey ────────────────────────────────────────────────────────────────
+
+/**
+ * The shortcut opens the window and starts recording. Pressed again it stops a recording,
+ * or hides the window when nothing is recording (the renderer decides, it knows).
+ */
+function onHotkey() {
+  if (!win) return;
+  if (win.isVisible()) {
+    win.webContents.send("hotkey", { opened: false });
+  } else {
+    showWindow();
+    win.webContents.send("hotkey", { opened: true });
+  }
+}
+
+/** Register `accelerator`. Returns an error message, or null on success. */
+function registerHotkey(accelerator) {
+  if (activeHotkey) globalShortcut.unregister(activeHotkey);
+  activeHotkey = null;
+  try {
+    if (!globalShortcut.register(accelerator, onHotkey)) {
+      return `"${accelerator}" is already used by another app.`;
+    }
+  } catch {
+    return `"${accelerator}" is not a valid shortcut.`;
+  }
+  activeHotkey = accelerator;
+  return null;
+}
+
+
+// ── Tray ──────────────────────────────────────────────────────────────────
+
+/** A 32×32 blue dot with a white mic, drawn pixel by pixel (no image files needed). */
+function trayIcon() {
+  const size = 32;
+  const buf = Buffer.alloc(size * size * 4);
+  const cover = (inside) => Math.max(0, Math.min(1, inside + 0.5));
+  const capsule = (x, y) => {
+    // Mic head: a capsule from y=8 to y=18, x centered, radius 4.
+    const cx = 15.5;
+    const cy = Math.max(11.5, Math.min(14.5, y));
+    return 4 - Math.hypot(x - cx, y - cy);
+  };
+  for (let py = 0; py < size; py++) {
+    for (let px = 0; px < size; px++) {
+      const x = px + 0.5;
+      const y = py + 0.5;
+      const circle = cover(15.5 - Math.hypot(x - 16, y - 16));
+      // Mic: capsule head, a U-shaped holder, a stem and a base.
+      const ring = Math.abs(Math.hypot(x - 15.5, y - 14) - 6.5);
+      const holder = y > 14 && y < 21.5 ? cover(1 - ring) : 0;
+      const stem = Math.abs(x - 15.5) < 1 && y > 20 && y < 24.5 ? 1 : 0;
+      const base = Math.abs(y - 24.5) < 1 && Math.abs(x - 15.5) < 4 ? 1 : 0;
+      const white = Math.min(1, Math.max(cover(capsule(x, y)), holder, stem, base));
+      const i = (py * size + px) * 4;
+      // BGRA. Blue is T3's primary, #3B6EF5.
+      buf[i] = Math.round(0xf5 * (1 - white) + 255 * white);
+      buf[i + 1] = Math.round(0x6e * (1 - white) + 255 * white);
+      buf[i + 2] = Math.round(0x3b * (1 - white) + 255 * white);
+      buf[i + 3] = Math.round(255 * circle);
+    }
+  }
+  return nativeImage.createFromBitmap(buf, { width: size, height: size, scaleFactor: 2 });
+}
+
+function createTray() {
+  tray = new Tray(trayIcon());
+  tray.setToolTip("Fancy Dictator");
+  const pretty = () => (settings.hotkey || "").replace(/Control/g, "Ctrl");
+  const menu = () =>
+    Menu.buildFromTemplate([
+      { label: `Show  (${pretty()})`, click: showWindow },
+      {
+        label: "Settings",
+        click: () => {
+          showWindow();
+          win.webContents.send("app:open-settings");
+        },
+      },
+      { type: "separator" },
+      { label: "Quit", click: () => ((quitting = true), app.quit()) },
+    ]);
+  tray.on("click", () => (win.isVisible() ? hideWindow() : showWindow()));
+  tray.on("right-click", () => tray.popUpContextMenu(menu()));
+}
+
+function applyLoginItem() {
+  if (!app.isPackaged) return; // In dev this would register electron.exe itself.
+  app.setLoginItemSettings({
+    openAtLogin: !!settings.runOnStartup,
+    path: process.execPath,
+  });
+}
+
+// ── IPC ───────────────────────────────────────────────────────────────────
+
+function sanitize(patch) {
+  const out = {};
+  if (typeof patch.sonioxApiKey === "string") out.sonioxApiKey = patch.sonioxApiKey.trim();
+  if (typeof patch.hotkey === "string" && patch.hotkey) out.hotkey = patch.hotkey;
+  if (typeof patch.micDeviceId === "string") out.micDeviceId = patch.micDeviceId;
+  if (Array.isArray(patch.languages)) out.languages = patch.languages.filter((l) => typeof l === "string");
+  if (typeof patch.runOnStartup === "boolean") out.runOnStartup = patch.runOnStartup;
+  return out;
+}
+
+function registerIpc() {
+  ipcMain.handle("settings:get", () => settings);
+  ipcMain.handle("settings:save", (_e, patch) => {
+    const previous = settings.hotkey;
+    settings = store.saveSettings(sanitize(patch || {}));
+    let hotkeyError = null;
+    if (settings.hotkey !== previous || !activeHotkey) {
+      hotkeyError = registerHotkey(settings.hotkey);
+      if (hotkeyError) {
+        registerHotkey(previous);
+        settings = store.saveSettings({ hotkey: previous });
+      }
+    }
+    applyLoginItem();
+    return { settings, hotkeyError };
+  });
+  ipcMain.handle("history:get", () => store.getHistory());
+  ipcMain.handle("history:add", (_e, entry) => store.addHistory(entry));
+  ipcMain.handle("history:clear", () => store.clearHistory());
+  ipcMain.handle("history:replace", (_e, entries) => store.replaceHistory(entries));
+  ipcMain.handle("clipboard:write", (_e, text) => clipboard.writeText(String(text ?? "")));
+  ipcMain.on("window:content-height", (_e, height) => keepOnScreen(Number(height)));
+  // The renderer reports whether the mouse is over the card (or an open popup). Elsewhere the
+  // window is see-through for clicks; `forward` keeps mouse moves coming so it can switch back.
+  ipcMain.on("window:ignore-mouse", (_e, ignore) => {
+    if (win) win.setIgnoreMouseEvents(Boolean(ignore), { forward: true });
+  });
+  ipcMain.on("window:hide", hideWindow);
+  ipcMain.on("hotkey:suspend", () => {
+    if (activeHotkey) globalShortcut.unregister(activeHotkey);
+    activeHotkey = null;
+  });
+  ipcMain.on("hotkey:resume", () => registerHotkey(settings.hotkey));
+  ipcMain.handle("update:get-state", () => updater.getState());
+  ipcMain.handle("update:check", () => updater.check());
+  ipcMain.handle("update:download", () => updater.download());
+  ipcMain.handle("update:install", () =>
+    updater.install(() => {
+      quitting = true; // let the window close for real while the installer takes over
+    }),
+  );
+}
+
+// ── Snapshot mode (FD_SNAPSHOT=1): render every view to ./snapshots/*.png ──
+
+const CARD_RECT = `(() => {
+  const r = document.querySelector("#root > div").getBoundingClientRect();
+  return { x: Math.floor(r.left), y: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height) };
+})()`;
+
+async function runSnapshots() {
+  const outDir = path.join(__dirname, "..", "snapshots");
+  fs.mkdirSync(outDir, { recursive: true });
+  win.showInactive();
+  if (process.env.FD_PROBE) console.log("[probe]", JSON.stringify(await win.webContents.executeJavaScript("window.__fdSnapshot.probe()")));
+  const views = await win.webContents.executeJavaScript("window.__fdSnapshot.views()");
+  for (const name of views) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show(${JSON.stringify(name)})`);
+    await new Promise((r) => setTimeout(r, 500)); // let the card's size animation finish
+    const rect = await win.webContents.executeJavaScript(CARD_RECT);
+    const height = rect.height;
+    const image = await win.webContents.capturePage(rect);
+    fs.writeFileSync(path.join(outDir, `${name}.png`), image.toPNG());
+    console.log(`[snapshot] ${name}.png (${rect.width}×${height})`);
+  }
+  // The settings dropdowns, open (the last view shown is Settings).
+  const triggers = await win.webContents.executeJavaScript(
+    "document.querySelectorAll('[data-slot=select-trigger]').length",
+  );
+  for (let i = 0; i < triggers; i++) {
+    // A real mouse click at the trigger's center, as a user would do it.
+    const { x, y } = await win.webContents.executeJavaScript(`(() => {
+      const r = document.querySelectorAll('[data-slot=select-trigger]')[${i}].getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    win.webContents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+    win.webContents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 800));
+    // The card plus the open dropdown, which may hang below it.
+    const rect = await win.webContents.executeJavaScript(`(() => {
+      const card = document.querySelector("#root > div").getBoundingClientRect();
+      const popup = document.querySelector("[data-slot=select-popup]")?.getBoundingClientRect();
+      const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
+      return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+    })()`);
+    const image = await win.webContents.capturePage(rect);
+    fs.writeFileSync(path.join(outDir, `7-settings-select-${i + 1}.png`), image.toPNG());
+    console.log(`[snapshot] 7-settings-select-${i + 1}.png`);
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    await new Promise((r) => setTimeout(r, 500));
+  }
+  quitting = true;
+  app.quit();
+}
+
+// ── App ───────────────────────────────────────────────────────────────────
+
+// Snapshot runs skip the lock so they work while the real app is open.
+if (!SNAPSHOT && !app.requestSingleInstanceLock()) {
+  app.quit();
+} else {
+  app.on("second-instance", showWindow);
+  app.whenReady().then(() => {
+    settings = store.getSettings();
+    session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
+      callback(permission === "media" || permission === "clipboard-sanitized-write");
+    });
+    session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
+    registerIpc();
+    createWindow();
+    if (SNAPSHOT) return;
+    const error = registerHotkey(settings.hotkey);
+    if (error) console.warn("[Hotkey]", error);
+    createTray();
+    updater.init((state) => win?.webContents.send("update:state", state));
+    applyLoginItem();
+  });
+  app.on("window-all-closed", () => {
+    /* Keep running in the tray. */
+  });
+  app.on("will-quit", () => {
+    globalShortcut.unregisterAll();
+  });
+}

@@ -1,0 +1,89 @@
+{
+  "name": "fancy-dictator",
+  "productName": "Fancy Dictator",
+  "version": "0.1.0",
+  "description": "Press a shortcut, speak, and watch Soniox write your words live.",
+  "private": true,
+  "main": "electron/main.cjs",
+  "scripts": {
+    "dev": "concurrently -k -n vite,electron -c blue,magenta \"vite\" \"wait-on tcp:5183 && cross-env VITE_DEV_SERVER_URL=http://localhost:5183 electron .\"",
+    "typecheck": "tsc --noEmit",
+    "build": "tsc --noEmit && vite build",
+    "start": "electron .",
+    "snapshot": "vite build && cross-env FD_SNAPSHOT=1 electron .",
+    "probe": "vite build && cross-env FD_SNAPSHOT=1 FD_PROBE=1 electron .",
+    "dist": "vite build && electron-builder --win --publish never",
+    "release": "node scripts/release.mjs"
+  },
+  "dependencies": {
+    "electron-updater": "^6.8.11"
+  },
+  "devDependencies": {
+    "@base-ui/react": "^1.9.0",
+    "@fontsource-variable/inter": "^5.3.0",
+    "@tailwindcss/vite": "^4.3.0",
+    "@types/react": "^19.2.0",
+    "@types/react-dom": "^19.2.0",
+    "@vitejs/plugin-react": "^6.1.2",
+    "class-variance-authority": "^0.7.1",
+    "concurrently": "^9.2.0",
+    "cross-env": "^10.0.0",
+    "electron": "^44.10.1",
+    "electron-builder": "^26.4.0",
+    "lucide-react": "^0.564.0",
+    "react": "^19.2.0",
+    "react-dom": "^19.2.0",
+    "tailwind-merge": "^3.4.0",
+    "tailwindcss": "^4.3.0",
+    "typescript": "^5.9.0",
+    "vite": "^8.0.0",
+    "wait-on": "^9.0.0"
+  },
+  "pnpm": {
+    "onlyBuiltDependencies": [
+      "electron",
+      "esbuild"
+    ]
+  },
+  "build": {
+    "appId": "com.otakugamer.fancydictator",
+    "productName": "Fancy Dictator",
+    "directories": {
+      "output": "release",
+      "buildResources": "build"
+    },
+    "files": [
+      "dist/**",
+      "electron/**",
+      "package.json"
+    ],
+    "artifactName": "Fancy-Dictator-Setup-${version}.${ext}",
+    "win": {
+      "target": [
+        "nsis"
+      ],
+      "icon": "build/icon.png"
+    },
+    "nsis": {
+      "oneClick": true,
+      "perMachine": false,
+      "differentialPackage": true,
+      "deleteAppDataOnUninstall": true,
+      "shortcutName": "Fancy Dictator",
+      "uninstallDisplayName": "Fancy Dictator"
+    },
+    "publish": [
+      {
+        "provider": "github",
+        "owner": "OtakuGamerAds",
+        "repo": "fancy-dictator",
+        "releaseType": "release"
+      }
+    ]
+  },
+  "author": "OtakuGamerAds",
+  "repository": {
+    "type": "git",
+    "url": "https://github.com/OtakuGamerAds/fancy-dictator.git"
+  }
+}
