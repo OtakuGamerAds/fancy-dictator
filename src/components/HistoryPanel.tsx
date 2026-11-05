@@ -47,7 +47,8 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
   const visible = history.filter((e) => shown.has(e)); // newest first, as stored
   const remaining = history.length - visible.length;
   return (
-    <div className="px-2 pt-1 pb-2">
+    // No side padding of its own: the list's px-2 lines the bubbles up with the text box above.
+    <div className="pt-1 pb-2">
       {history.length === 0 ? (
         <p className="px-4 py-6 text-center text-muted-foreground text-xs">Your transcriptions will show up here.</p>
       ) : (

@@ -193,7 +193,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
         </Row>
       </div>
 
-      <div className="flex items-center justify-end gap-3 border-t border-border px-3 py-2.5">
+      <div className="flex items-center justify-end gap-3 border-t border-border px-4 py-2.5">
         {error && <p className="me-auto ps-1 text-error-foreground text-xs">{error}</p>}
         <Button size="sm" className="min-w-20" disabled={saving || capturing} onClick={() => void save()}>
           Save

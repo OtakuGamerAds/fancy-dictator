@@ -357,7 +357,11 @@ export function App() {
   useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    const observer = new ResizeObserver(() => setContentSize({ width: el.offsetWidth, height: el.offsetHeight }));
+    // Rounded up: a fractional width would leave the right gap half a pixel short.
+    const observer = new ResizeObserver(() => {
+      const r = el.getBoundingClientRect();
+      setContentSize({ width: Math.ceil(r.width), height: Math.ceil(r.height) });
+    });
     observer.observe(el);
     return () => observer.disconnect();
   }, [view]);
@@ -425,6 +429,9 @@ export function App() {
     >
       <div
         ref={contentRef}
+        // flow-root keeps the last child's bottom margin inside, so it is measured (and the
+        // card does not cut the gap under the text box).
+        className="flow-root"
         style={{
           width: "max-content",
           minWidth: (fullWidth ? FULL_WIDTH : COMPACT_WIDTH) - 2,
@@ -662,6 +669,16 @@ function useSnapshotHooks(s: SnapshotSetters) {
         scenes[name]?.(setters.current);
         await frame();
         await new Promise((r) => setTimeout(r, 300));
+        const card = document.querySelector("#root > div")?.getBoundingClientRect();
+        const box = document.querySelector("[data-slot=composer-box]")?.getBoundingClientRect();
+        const bar = document.querySelector("[data-slot=composer-toolbar]")?.getBoundingClientRect();
+        if (card && box && bar) {
+          const r = (n: number) => Math.round(n * 10) / 10;
+          console.log(
+            `[layout] ${name}: toolbar top ${r(bar.top - card.top)} · gap ${r(box.top - bar.bottom)} · ` +
+              `box left ${r(box.left - card.left)} right ${r(card.right - box.right)} bottom ${r(card.bottom - box.bottom)}`,
+          );
+        }
         return (setters.current.contentRef.current?.offsetHeight ?? 95) + 2;
       },
       click: async (selector) => {

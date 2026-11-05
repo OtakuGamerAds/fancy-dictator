@@ -71,6 +71,7 @@ export function Composer(props: ComposerProps) {
       {/* The text box: T3's composer surface color on the black window. As in T3, the
           language picker (T3: the model picker) and the primary button sit inside it, at the end. */}
       <div
+        data-slot="composer-box"
         dir="ltr"
         className="relative mx-2 mt-2 mb-2 flex items-end gap-2 rounded-xl border border-(--composer-outline) bg-card py-1.5 ps-3.5 pe-1.5 inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
       >
@@ -255,7 +256,7 @@ function AnimatedDots() {
  */
 function Toolbar({ left, center, right }: { left: React.ReactNode; center: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div className="@container/footer px-2 pt-2">
+    <div data-slot="composer-toolbar" className="@container/footer px-2 pt-2">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div className="flex min-w-0 items-center justify-start gap-0.5">{left}</div>
         <div className="flex items-center justify-center">{center}</div>
