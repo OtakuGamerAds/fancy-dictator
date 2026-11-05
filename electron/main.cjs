@@ -104,11 +104,9 @@ function createWindow() {
   });
 
   // However the window gets hidden, a recording in progress is stopped and kept.
-  win.on("hide", () => {
-    win.webContents.send("app:hidden");
-  });
+  win.on("hide", () => sendToWindow("app:hidden"));
   win.on("moved", () => {
-    if (!win) return;
+    if (!windowAlive()) return;
     const { x, y, width } = win.getBounds();
     settings = store.saveSettings({ windowAnchor: { cx: Math.round(x + width / 2), y } });
   });
@@ -117,17 +115,29 @@ function createWindow() {
     event.preventDefault();
     hideWindow();
   });
+  // Quitting (or restarting into an update) destroys the window; nothing may touch it after.
+  win.on("closed", () => {
+    stopHitTesting();
+    win = null;
+  });
+}
+
+/** A window that is quitting is destroyed before every timer and event has stopped. */
+const windowAlive = () => win !== null && !win.isDestroyed();
+
+function sendToWindow(channel, payload) {
+  if (windowAlive()) win.webContents.send(channel, payload);
 }
 
 function showWindow() {
-  if (!win) return;
+  if (!windowAlive()) return;
   win.show();
   win.focus();
   startHitTesting();
 }
 
 function hideWindow() {
-  if (!win) return;
+  if (!windowAlive()) return;
   win.hide();
   stopHitTesting();
 }
@@ -144,13 +154,13 @@ let hitTimer = null;
 let ignoring = null;
 
 function setIgnoring(ignore) {
-  if (!win || ignore === ignoring) return;
+  if (!windowAlive() || ignore === ignoring) return;
   ignoring = ignore;
   win.setIgnoreMouseEvents(ignore);
 }
 
 function updateClickThrough() {
-  if (!win || !win.isVisible()) return;
+  if (!windowAlive() || !win.isVisible()) return;
   const cursor = screen.getCursorScreenPoint();
   const bounds = win.getBounds();
   const x = cursor.x - bounds.x;
@@ -172,7 +182,7 @@ function stopHitTesting() {
 
 /** If the card would run past the bottom of the screen, move the window up just enough. */
 function keepOnScreen(contentHeight) {
-  if (!win || !Number.isFinite(contentHeight)) return;
+  if (!windowAlive() || !Number.isFinite(contentHeight)) return;
   const bounds = win.getBounds();
   const { workArea: a } = screen.getDisplayMatching(bounds);
   const bottom = a.y + a.height;
@@ -187,12 +197,12 @@ function keepOnScreen(contentHeight) {
  * or hides the window when nothing is recording (the renderer decides, it knows).
  */
 function onHotkey() {
-  if (!win) return;
+  if (!windowAlive()) return;
   if (win.isVisible()) {
-    win.webContents.send("hotkey", { opened: false });
+    sendToWindow("hotkey", { opened: false });
   } else {
     showWindow();
-    win.webContents.send("hotkey", { opened: true });
+    sendToWindow("hotkey", { opened: true });
   }
 }
 
@@ -258,13 +268,13 @@ function createTray() {
         label: "Settings",
         click: () => {
           showWindow();
-          win.webContents.send("app:open-settings");
+          sendToWindow("app:open-settings");
         },
       },
       { type: "separator" },
       { label: "Quit", click: () => ((quitting = true), app.quit()) },
     ]);
-  tray.on("click", () => (win.isVisible() ? hideWindow() : showWindow()));
+  tray.on("click", () => (windowAlive() && win.isVisible() ? hideWindow() : showWindow()));
   tray.on("right-click", () => tray.popUpContextMenu(menu()));
 }
 
@@ -401,11 +411,15 @@ if (!SNAPSHOT && !app.requestSingleInstanceLock()) {
     const error = registerHotkey(settings.hotkey);
     if (error) console.warn("[Hotkey]", error);
     createTray();
-    updater.init((state) => win?.webContents.send("update:state", state));
+    updater.init((state) => sendToWindow("update:state", state));
     applyLoginItem();
   });
   app.on("window-all-closed", () => {
     /* Keep running in the tray. */
+  });
+  app.on("before-quit", () => {
+    quitting = true;
+    stopHitTesting();
   });
   app.on("will-quit", () => {
     globalShortcut.unregisterAll();
