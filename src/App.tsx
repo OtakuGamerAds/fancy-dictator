@@ -116,7 +116,7 @@ export function App() {
    * Turn what is in the box into a message in the history and start clean, like sending in
    * T3. Used by Ctrl+Enter and whenever the window is hidden. A recording is finished first.
    */
-  const sendBox = async ({ showInHistory = false, undoable = false } = {}) => {
+  const sendBox = async ({ showInHistory = false, undoable = false, copy = false } = {}) => {
     let value = textRef.current;
     let duration = latest.current.durationMs;
     if (phaseRef.current === "recording" || phaseRef.current === "stopping") {
@@ -135,9 +135,10 @@ export function App() {
         setHistoryMode("session");
         setHistoryOpen(true);
       }
+      if (copy) await window.api.copy(entry.text);
       if (undoable) {
         showUndoNotice({
-          action: "Cleared",
+          action: copy ? "Copied" : "Cleared",
           undo: () => {
             writeText(entry.text);
             setDurationMs(entry.durationMs);
@@ -332,7 +333,7 @@ export function App() {
       // Ctrl+Enter sends the box to the history and clears it.
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && latest.current.view === "main") {
         event.preventDefault();
-        void sendBox({ showInHistory: true, undoable: true });
+        void sendBox({ showInHistory: true, undoable: true, copy: true });
         return;
       }
       if (event.key !== "Escape") return;
@@ -436,7 +437,6 @@ export function App() {
               elapsedMs={durationMs + (phase === "idle" ? 0 : now - startedAt)}
               durationMs={durationMs}
               levels={levels}
-              copied={copied}
               historyOpen={historyOpen}
               historyCount={history.length}
               onTextChange={(value) => {
@@ -445,8 +445,8 @@ export function App() {
               }}
               onMic={() => void startRecording()}
               onStop={() => void stopRecording()}
-              onCopy={() => void copy(text.trim()).then(() => setCopied(true))}
-              onClear={() => void sendBox({ showInHistory: true, undoable: true })}
+              // Copy, keep it in the messages, and start fresh: talk → Copy → paste anywhere.
+              onCopy={() => void sendBox({ showInHistory: true, undoable: true, copy: true })}
               languages={settings?.languages ?? []}
               onLanguagesChange={(languages) => {
                 if (!settings) return;
@@ -608,7 +608,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setError(null);
         x.setHistoryOpen(false);
         x.setText("");
-        showUndoNotice({ action: "Cleared", undo: () => {} });
+        showUndoNotice({ action: "Copied", undo: () => {} });
       },
       "6-settings": (x) => {
         x.setError(null);

@@ -7,7 +7,7 @@
  */
 import { useSyncExternalStore } from "react";
 
-export type UndoAction = "Deleted" | "Cleared";
+export type UndoAction = "Deleted" | "Cleared" | "Copied";
 
 type UndoOptions = {
   action: UndoAction;

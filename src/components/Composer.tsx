@@ -1,31 +1,12 @@
-import {
-  CheckIcon,
-  ChevronDownIcon,
-  CopyIcon,
-  LoaderCircleIcon,
-  MinusIcon,
-  MicIcon,
-  Settings2Icon,
-  SquareIcon,
-} from "lucide-react";
+import { ChevronDownIcon, CopyIcon, LoaderCircleIcon, MicIcon, MinusIcon, Settings2Icon, SquareIcon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
-import { useUndoNotice } from "~/lib/undoNotice";
 import { Waveform } from "~/components/Waveform";
 import { cn, countWords, formatDuration, textDirection } from "~/lib/utils";
-
-/**
- * The text area copies T3 Code's composer editor (ComposerPromptEditorTiptap.tsx):
- * 14px text, relaxed line height; grows line by line to 208px (max-h-52), then scrolls.
- * (T3 starts at 2 lines; here it starts at 1 so the box only grows when the words need it.)
- * dir="auto" puts the scrollbar on the left for Arabic, as T3 does.
- */
-const TEXT_AREA =
-  "-m-1 block max-h-52 min-h-[calc(1lh+--spacing(2))] w-[calc(100%+--spacing(2))] overflow-y-auto p-1 whitespace-pre-wrap wrap-break-word bg-transparent text-foreground text-sm leading-relaxed placeholder:text-placeholder focus:outline-none";
 
 export type Phase = "idle" | "starting" | "recording" | "stopping";
 
@@ -39,16 +20,14 @@ interface ComposerProps {
   elapsedMs: number;
   durationMs: number;
   levels: number[];
-  copied: boolean;
   historyOpen: boolean;
   /** How many messages there are; with none, the history arrow is disabled. */
   historyCount: number;
   onTextChange(text: string): void;
   onMic(): void;
   onStop(): void;
+  /** Copy the text, keep it in the messages and empty the box (stops a recording first). */
   onCopy(): void;
-  /** Save the box to the history and empty it (stopping a recording first); Ctrl+Enter too. */
-  onClear(): void;
   languages: string[];
   onLanguagesChange(languages: string[]): void;
   onToggleHistory(): void;
@@ -58,57 +37,39 @@ interface ComposerProps {
 }
 
 /**
- * The one view: a toolbar on top (mic in the center, window controls at the right, like a
- * title bar), then the T3-style text box. The history opens below the box.
+ * The one view: a toolbar on top (settings and updates at the left, the messages arrow and
+ * hide at the right), then the box.
+ *
+ * Empty, the box itself is the talk button: click anywhere in it to start the mic. With
+ * text it is T3's composer (the text across the full width, a row of controls under it),
+ * whose main button is Copy: copy, keep it in the messages, start fresh.
  */
 export function Composer(props: ComposerProps) {
   const listening = props.phase !== "idle";
-  // An error with nothing else in the box takes the placeholder's place, on the same line.
-  const errorOnly = !listening && !props.text && props.error;
+  const talkSurface = !listening && !props.text;
   return (
     <div>
-      {listening ? <RecordingToolbar {...props} /> : <IdleToolbar {...props} />}
-      {/* The text box, laid out like T3's composer: the text across the full width, and under
-          it a row of controls (T3: attach on the left; model picker and send on the right). */}
+      <Toolbar {...props} />
       <div
         data-slot="composer-box"
         dir="ltr"
         className="relative mx-2 mt-2 mb-2 rounded-xl border border-(--composer-outline) bg-card inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
       >
-        <div className="px-3.5 pt-2.5 pb-1">
-          {errorOnly ? (
-            <p className={cn(TEXT_AREA, "text-center text-error-foreground")}>{props.error}</p>
-          ) : (
-            <ComposerText {...props} />
-          )}
-          {props.error && !errorOnly && <p className="mt-1 text-error-foreground text-xs">{props.error}</p>}
-        </div>
-        <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
-          <CopyButton {...props} />
-          <div className="flex items-center gap-1">
-            <LanguagePicker value={props.languages} disabled={listening} onChange={props.onLanguagesChange} />
-            <ClearButton {...props} />
-          </div>
-        </div>
+        {talkSurface ? (
+          <TalkSurface {...props} />
+        ) : (
+          <>
+            <div className="px-3.5 pt-2.5 pb-1">
+              <ComposerText {...props} />
+              {props.error && <p className="mt-1 text-error-foreground text-xs">{props.error}</p>}
+            </div>
+            <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
+              {listening ? <RecordingRow {...props} /> : <EditRow {...props} />}
+            </div>
+          </>
+        )}
       </div>
     </div>
-  );
-}
-
-/** Copies the box's text; a tick confirms it. Dimmed while there is nothing to copy. */
-function CopyButton({ text, copied, onCopy }: ComposerProps) {
-  const label = copied ? "Copied" : "Copy";
-  return (
-    <Button
-      variant="ghost-muted"
-      size="icon-xs"
-      disabled={!text.trim()}
-      aria-label={label}
-      title={label}
-      onClick={onCopy}
-    >
-      {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
-    </Button>
   );
 }
 
@@ -117,40 +78,107 @@ const MESSAGE_ACTION_PILL =
   "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
 
 /**
- * "Clear", in the place and style of T3's submit button: dimmed while the box is empty.
- * It keeps the text (it moves to the history) and empties the box; Ctrl+Z brings it back.
+ * The empty box is one big talk button. The language picker and the undo notice inside it
+ * keep their own clicks (they stop the click from reaching the box).
  */
-function ClearButton({ phase, text, onClear }: ComposerProps) {
-  const canClear = phase === "recording" || text.trim().length > 0;
+function TalkSurface({ error, languages, onMic, onLanguagesChange }: ComposerProps) {
   return (
-    <button
-      type="button"
-      className={cn(MESSAGE_ACTION_PILL, "h-8 px-3 sm:h-7")}
-      disabled={!canClear}
-      title="Keeps it in your messages and empties the box (Ctrl+Enter)"
-      onClick={onClear}
+    <div
+      role="button"
+      tabIndex={0}
+      data-no-drag
+      aria-label="Click to talk"
+      onClick={onMic}
+      onKeyDown={(event) => {
+        if (event.key === "Enter" || event.key === " ") {
+          event.preventDefault();
+          onMic();
+        }
+      }}
+      className="group/talk flex cursor-pointer flex-col rounded-[inherit] outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      Clear
-    </button>
+      <div className="flex items-center justify-center gap-2.5 px-3.5 pt-3 pb-1">
+        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs shadow-primary/24 transition-transform group-hover/talk:scale-105">
+          <MicIcon className="size-3.5" />
+        </span>
+        <span className={cn("text-sm", error ? "text-error-foreground" : "text-placeholder group-hover/talk:text-foreground")}>
+          {error ? `${error} Click to try again.` : "Click to talk"}
+        </span>
+      </div>
+      <div className="flex min-h-8 items-center justify-between gap-2 px-1.5 pb-1.5">
+        <span onClick={(event) => event.stopPropagation()}>
+          <LanguagePicker value={languages} onChange={onLanguagesChange} />
+        </span>
+        {/* "Copied, Ctrl+Z to undo" right after the box was emptied. */}
+        <span className="min-w-0 flex-1" onClick={(event) => event.stopPropagation()}>
+          <UndoNotice className="w-full justify-start" />
+        </span>
+      </div>
+    </div>
   );
 }
 
-const PLACEHOLDER = "Press the mic and talk";
+/** Under the text: languages, a mic to add more, and Copy, the main action. */
+function EditRow({ text, languages, onMic, onCopy, onLanguagesChange }: ComposerProps) {
+  return (
+    <>
+      <LanguagePicker value={languages} onChange={onLanguagesChange} />
+      <div className="flex items-center gap-1">
+        <Button
+          variant="ghost-muted"
+          size="icon-sm"
+          className="rounded-full before:rounded-full"
+          aria-label="Keep dictating"
+          title="Keep dictating"
+          onClick={onMic}
+        >
+          <MicIcon />
+        </Button>
+        <button
+          type="button"
+          className={cn(MESSAGE_ACTION_PILL, "h-8 px-3 sm:h-7")}
+          disabled={!text.trim()}
+          title="Copy, keep it in your messages, and start fresh (Ctrl+Enter)"
+          onClick={onCopy}
+        >
+          <CopyIcon className="size-3.5" />
+          Copy
+        </button>
+      </div>
+    </>
+  );
+}
+
+/** While recording: the timer and the wave, and Stop. */
+function RecordingRow({ phase, elapsedMs, levels, onStop }: ComposerProps) {
+  return (
+    <>
+      <span className="flex items-center gap-2 ps-2 text-muted-foreground text-xs tabular-nums">
+        <span className="size-2 animate-pulse rounded-full bg-red-500" />
+        {formatDuration(elapsedMs)}
+        <Waveform levels={levels} className="ms-1" />
+      </span>
+      <Button variant="outline" size="sm" className="h-8 rounded-full px-3 before:rounded-full sm:h-7" disabled={phase === "stopping"} onClick={onStop}>
+        {phase === "stopping" ? <LoaderCircleIcon className="animate-spin" /> : <SquareIcon className="size-2.5 fill-current" />}
+        Stop
+      </Button>
+    </>
+  );
+}
+
 /** Text metrics shared by the textarea and its mirror; they must lay out identically. */
 const FIELD_TEXT = "whitespace-pre-wrap wrap-break-word text-sm leading-relaxed";
 
 /**
- * The text box. It is editable at all times, also while recording: settled words are
- * appended to `text` as Soniox sends them, and only the still-unsettled (gray) words are
- * outside your reach. The textarea sits over a "mirror" div that holds the same text
- * (invisible) followed by the gray words, so those appear right after your text, and the
- * mirror gives the box its natural size.
+ * The text, copying T3 Code's composer editor (ComposerPromptEditorTiptap.tsx): 14px, relaxed
+ * line height; it grows line by line to 208px (max-h-52), then scrolls, with the scrollbar on
+ * the left for Arabic. It stays editable while recording: settled words are appended to
+ * `text` as Soniox sends them, and only the still-unsettled (gray) words are out of reach.
+ * The textarea sits over a "mirror" div that holds the same text (invisible) followed by the
+ * gray words, so those appear right after your text, and the mirror gives the box its size.
  */
 function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps) {
   const listening = phase !== "idle";
-  // Right after the box is emptied, "Cleared, Ctrl+Z to undo" stands where the text was.
-  const undoShowing = useUndoNotice() !== null;
-  const undoInBox = !listening && !text && undoShowing;
   const scrollRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // Follow the newest words unless the caret was moved away from the end to edit.
@@ -185,14 +213,10 @@ function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps)
       <div className="relative">
         <div aria-hidden className={cn(FIELD_TEXT, "min-h-[1lh]", empty && "text-center")}>
           {empty ? (
-            listening ? (
+            listening && (
               <span dir="ltr" className="text-placeholder">
                 {phase === "starting" ? "Connecting" : "Listening"}
                 <AnimatedDots />
-              </span>
-            ) : (
-              <span dir="ltr" className={cn("text-placeholder", undoInBox && "invisible")}>
-                {PLACEHOLDER}
               </span>
             )
           ) : (
@@ -204,25 +228,17 @@ function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps)
             </>
           )}
         </div>
-        {undoInBox && (
-          // Above the textarea so its undo button can be clicked; the rest lets clicks reach the box.
-          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center [&_button]:pointer-events-auto">
-            <UndoNotice className="h-auto w-full justify-center text-sm leading-relaxed" />
-          </div>
-        )}
         <textarea
           ref={areaRef}
           value={text}
           spellCheck={false}
-          aria-label={PLACEHOLDER}
+          aria-label="Your text"
           onChange={(event) => onTextChange(event.target.value)}
           onSelect={(event) => {
             const el = event.currentTarget;
             followEnd.current = el.selectionEnd === el.value.length;
           }}
-          // The placeholder is drawn by the mirror, centered. The textarea itself is never
-          // centered, and its caret only shows once there is text: an empty, centered textarea
-          // put the caret in the middle of the line, away from where words actually start.
+          // The caret only shows once there is text, so it never sits apart from the words.
           className={cn(
             FIELD_TEXT,
             "absolute inset-0 size-full resize-none overflow-hidden bg-transparent text-foreground focus:outline-none",
@@ -250,26 +266,44 @@ function AnimatedDots() {
 }
 
 /**
- * The toolbar: the main control exactly centered, the side columns hold everything else.
- *
- * It is a size container, so it never makes the card wider: only the text decides the width.
- * Its contents adapt to the width they get instead (`@min-[…]/footer:` variants), e.g. the
- * word count only shows when there is room for it.
+ * The toolbar, like a title bar: settings and updates at the left, the messages arrow and hide
+ * at the right. It is a size container, so it never makes the card wider; the word count only
+ * shows when there is room for it.
  */
-function Toolbar({ left, center, right }: { left: React.ReactNode; center: React.ReactNode; right: React.ReactNode }) {
+function Toolbar(props: ComposerProps) {
+  const { phase, text, durationMs, onClose, onOpenSettings } = props;
+  const listening = phase !== "idle";
   return (
     <div data-slot="composer-toolbar" className="@container/footer px-2 pt-2">
-      <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-        <div className="flex min-w-0 items-center justify-start gap-0.5">{left}</div>
-        <div className="flex items-center justify-center">{center}</div>
-        <div className="flex min-w-0 items-center justify-end gap-0.5 @min-[620px]/footer:gap-1.5">{right}</div>
+      <div className="flex items-center justify-between gap-2">
+        <div className="flex min-w-0 items-center gap-0.5">
+          <Button
+            variant="ghost-muted"
+            size="icon"
+            className="rounded-full before:rounded-full"
+            aria-label="Settings"
+            title={listening ? "Settings (after the recording)" : "Settings"}
+            aria-disabled={listening || undefined}
+            onClick={() => !listening && onOpenSettings()}
+          >
+            <Settings2Icon />
+          </Button>
+          <UpdateButton />
+          {!listening && text.trim() && (
+            <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[300px]/footer:inline">
+              {durationMs > 0 && `${formatDuration(durationMs)} · `}
+              {countWords(text)} words
+            </span>
+          )}
+        </div>
+        <div className="flex items-center gap-0.5">
+          <HistoryToggle {...props} />
+          <HideButton label={listening ? "Hide (keeps what you said)" : "Hide (Esc)"} onClick={onClose} />
+        </div>
       </div>
     </div>
   );
 }
-
-/** Toolbar controls are all 32px, the size of T3 Code's round controls (its update button too). */
-const ROUND = "size-8 rounded-full before:rounded-full sm:size-8";
 
 /** Folds or unfolds the messages under the box. Disabled (T3's not-allowed cursor) when there are none. */
 function HistoryToggle({ historyOpen, historyCount, onToggleHistory }: ComposerProps) {
@@ -293,84 +327,10 @@ function HistoryToggle({ historyOpen, historyCount, onToggleHistory }: ComposerP
 }
 
 /** Hides the window (it keeps running in the tray), like a minimize button in the corner. */
-function HideButton({ onClick, label = "Hide (Esc)" }: { onClick(): void; label?: string }) {
+function HideButton({ onClick, label }: { onClick(): void; label: string }) {
   return (
     <Button variant="ghost-muted" size="icon" className="rounded-full before:rounded-full" aria-label={label} title={label} onClick={onClick}>
       <MinusIcon />
     </Button>
-  );
-}
-
-function RecordingToolbar(props: ComposerProps) {
-  const { phase, elapsedMs, levels, onStop, onClose } = props;
-  return (
-    <Toolbar
-      left={
-        <span className="flex items-center gap-1.5 ps-2 text-muted-foreground text-xs tabular-nums">
-          <span className="size-2 animate-pulse rounded-full bg-red-500" />
-          {formatDuration(elapsedMs)}
-        </span>
-      }
-      // Stop and the wave are one group, centered together.
-      center={
-        <div className="flex items-center gap-3">
-        <Button
-          variant="outline"
-          size="icon"
-          className={ROUND}
-          aria-label="Stop"
-          disabled={phase === "stopping"}
-          onClick={onStop}
-        >
-          {phase === "stopping" ? (
-            <LoaderCircleIcon className="animate-spin" />
-          ) : (
-            <SquareIcon className="size-2.5 fill-current sm:size-2.5" />
-          )}
-        </Button>
-        <Waveform levels={levels} />
-        </div>
-      }
-      right={
-        <>
-          <HistoryToggle {...props} />
-          <HideButton label="Hide (keeps what you said)" onClick={onClose} />
-        </>
-      }
-    />
-  );
-}
-
-function IdleToolbar(props: ComposerProps) {
-  const { text, durationMs, onMic, onClose, onOpenSettings } = props;
-  const hasText = text.trim().length > 0;
-  return (
-    <Toolbar
-      left={
-        <>
-          <Button variant="ghost-muted" size="icon" className="rounded-full before:rounded-full" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
-            <Settings2Icon />
-          </Button>
-          <UpdateButton />
-          {hasText && (
-            <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[400px]/footer:inline">
-              {durationMs > 0 && `${formatDuration(durationMs)} · `}
-              {countWords(text)} words
-            </span>
-          )}
-        </>
-      }
-      center={
-        <Button size="icon" className={ROUND} aria-label="Dictate" title="Dictate" onClick={onMic}>
-          <MicIcon />
-        </Button>
-      }
-      right={
-        <>
-          <HistoryToggle {...props} />
-          <HideButton onClick={onClose} />
-        </>
-      }
-    />
   );
 }

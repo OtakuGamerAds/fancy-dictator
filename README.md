@@ -5,11 +5,13 @@ Copy the text, or send it to your recent messages.
 
 - `Ctrl+Alt+Space` opens the window and starts recording; pressed again it stops the
   recording, or hides the window when nothing is recording.
-- **Clear** (in the box, or `Ctrl+Enter`) moves the text into your messages below and empties
-  the box; `Ctrl+Z` brings it back. Hiding the window does the same, so it always opens clean.
-- The languages Soniox listens for are picked beside Clear.
-- The toolbar on top has the mic in the middle; at the right, Copy, updates, settings, the
-  messages arrow and **—** to hide the window.
+- The empty box is the talk button: click anywhere in it to start the mic.
+- **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
+  the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
+  so it always opens clean.
+- The languages Soniox listens for are picked at the bottom-left of the box.
+- The toolbar has settings and updates at the left; the messages arrow and **—** (hide) at
+  the right.
 - Lives in the tray; right-click the tray icon for Settings or Quit.
 
 ## Install, update, uninstall
