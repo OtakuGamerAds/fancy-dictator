@@ -243,6 +243,7 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
 
   // The gray words go where they will land once settled, joined the same way.
   const pending = joinSpoken(text, pendingText, pendingContinues).slice(text.length);
+  const pendingLead = /^\s*/.exec(pending)?.[0] ?? "";
   const empty = !text && !pending;
 
   useEffect(() => {
@@ -279,7 +280,11 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
           ) : (
             <>
               <span className="invisible">{text}</span>
-              <span className="text-muted-foreground/70">{pending}</span>
+              {/* Isolated (<bdi>): mixed Arabic and English words around it would otherwise be
+                  reordered differently here than in the textarea above, and the two would overlap. */}
+              {/* The space before them stays outside, between the words, not at the isolated edge. */}
+              {pendingLead}
+              <bdi className="text-muted-foreground/70">{pending.slice(pendingLead.length)}</bdi>
               {/* Keeps a trailing line break one line tall. */}
               {"​"}
             </>

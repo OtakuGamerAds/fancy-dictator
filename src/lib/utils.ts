@@ -26,11 +26,18 @@ export function formatAgo(timestamp: number, now = Date.now()): string {
   return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
-/** "rtl" when the first strong character is Arabic/Hebrew/etc. */
+/**
+ * "rtl" when most of the letters are Arabic/Hebrew/etc., so Arabic that starts with an
+ * English word ("Oh, oh, الله يسلمك…") still reads right to left. A tie goes to the first letter.
+ */
 export function textDirection(text: string): "rtl" | "ltr" {
-  const match = text.match(/[\p{L}]/u);
-  return match && /[֐-ࣿיִ-﷿ﹰ-﻿]/u.test(match[0]) ? "rtl" : "ltr";
+  const letters = text.match(/\p{L}/gu) ?? [];
+  const rtl = letters.filter((letter) => RTL_LETTER.test(letter)).length;
+  const ltr = letters.length - rtl;
+  if (rtl !== ltr) return rtl > ltr ? "rtl" : "ltr";
+  return letters[0] !== undefined && RTL_LETTER.test(letters[0]) ? "rtl" : "ltr";
 }
+const RTL_LETTER = /[֐-ࣿיִ-﷿ﹰ-﻿]/u;
 
 /**
  * Put Soniox's words after the box's text. Soniox sends pieces of words that carry their own

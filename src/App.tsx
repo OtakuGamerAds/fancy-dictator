@@ -632,6 +632,15 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setText("مرحبا، بدي اكتب رسالة سريعة لفريق العمل بخصوص التحديث الجاي، وأولاً");
         x.setPendingText(" لازم نراجع");
       },
+      // English then Arabic, with the unsettled words on the last line: the two layers must line up.
+      "3e-recording-mixed": (x) => {
+        x.setText("Oh, oh, الله يسلمك، خلود. صح، بس في الأهل. نعم، ولا فهمت عليك.");
+        x.setPendingText(" هيدي المشكلة، ليكوا ليكوا، يا الله، عن جد الأهل.");
+      },
+      "3f-recording-mixed-back": (x) => {
+        x.setText("مرحبا، بدي اكتب رسالة سريعة لفريق العمل.");
+        x.setPendingText(" I can also speak English");
+      },
       "3c-recording-list-open": (x) => {
         x.setHistory(SAMPLE_HISTORY);
         x.setHistoryOpen(true);
