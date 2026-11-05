@@ -83,11 +83,29 @@ export function Composer(props: ComposerProps) {
           {props.error && !errorOnly && <p className="mt-1 text-error-foreground text-xs">{props.error}</p>}
         </div>
         <div className="flex shrink-0 items-center gap-1">
+          <CopyButton {...props} />
           <LanguagePicker value={props.languages} disabled={listening} onChange={props.onLanguagesChange} />
           <ClearButton {...props} />
         </div>
       </div>
     </div>
+  );
+}
+
+/** Copies the box's text; a tick confirms it. Dimmed while there is nothing to copy. */
+function CopyButton({ text, copied, onCopy }: ComposerProps) {
+  const label = copied ? "Copied" : "Copy";
+  return (
+    <Button
+      variant="ghost-muted"
+      size="icon-xs"
+      disabled={!text.trim()}
+      aria-label={label}
+      title={label}
+      onClick={onCopy}
+    >
+      {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
+    </Button>
   );
 }
 
@@ -223,24 +241,20 @@ function AnimatedDots() {
  * The toolbar: the main control exactly centered, the side columns hold everything else.
  *
  * It is a size container, so it never makes the card wider: only the text decides the width.
- * Its contents adapt to the width they get instead (`@min-[…]/footer:` variants): Copy
- * shows its label when there is room and is an icon when there is not.
+ * Its contents adapt to the width they get instead (`@min-[…]/footer:` variants), e.g. the
+ * word count only shows when there is room for it.
  */
 function Toolbar({ left, center, right }: { left: React.ReactNode; center: React.ReactNode; right: React.ReactNode }) {
   return (
     <div className="@container/footer px-2 pt-2">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
-        <div className="flex min-w-0 items-center justify-start ps-2">{left}</div>
+        <div className="flex min-w-0 items-center justify-start gap-0.5">{left}</div>
         <div className="flex items-center justify-center">{center}</div>
         <div className="flex min-w-0 items-center justify-end gap-0.5 @min-[620px]/footer:gap-1.5">{right}</div>
       </div>
     </div>
   );
 }
-
-/** Wide footer: a labelled button; narrow footer: the same action as an icon. */
-const WIDE_ONLY = "hidden @min-[620px]/footer:inline-flex";
-const NARROW_ONLY = "@min-[620px]/footer:hidden";
 
 const ROUND = "size-7 rounded-full before:rounded-full sm:size-7 [&_svg:not([class*='size-'])]:size-3.5";
 
@@ -257,7 +271,7 @@ function RecordingToolbar({ phase, elapsedMs, levels, onStop, onClose }: Compose
   return (
     <Toolbar
       left={
-        <span className="flex items-center gap-1.5 text-muted-foreground text-xs tabular-nums">
+        <span className="flex items-center gap-1.5 ps-2 text-muted-foreground text-xs tabular-nums">
           <span className="size-2 animate-pulse rounded-full bg-red-500" />
           {formatDuration(elapsedMs)}
         </span>
@@ -290,11 +304,9 @@ function RecordingToolbar({ phase, elapsedMs, levels, onStop, onClose }: Compose
 function IdleToolbar({
   text,
   durationMs,
-  copied,
   historyOpen,
   historyCount,
   onMic,
-  onCopy,
   onToggleHistory,
   onClose,
   onOpenSettings,
@@ -307,13 +319,17 @@ function IdleToolbar({
     <Toolbar
       left={
         <>
+          <Button variant="ghost-muted" size="icon-sm" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+            <Settings2Icon />
+          </Button>
+          <UpdateButton />
           {hasText && !undoShowing && (
-            <span className="hidden text-muted-foreground text-xs tabular-nums @min-[560px]/footer:inline">
+            <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[560px]/footer:inline">
               {durationMs > 0 && `${formatDuration(durationMs)} · `}
               {countWords(text)} words
             </span>
           )}
-          <UndoNotice className="flex-1" />
+          <UndoNotice className="ms-1.5 flex-1" />
         </>
       }
       center={
@@ -323,28 +339,6 @@ function IdleToolbar({
       }
       right={
         <>
-          {hasText && (
-            <>
-              <Button variant="outline" size="sm" className={cn("me-1 min-w-22", WIDE_ONLY)} onClick={onCopy}>
-                {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
-                {copied ? "Copied" : "Copy"}
-              </Button>
-              <Button
-                variant="ghost-muted"
-                size="icon-sm"
-                className={NARROW_ONLY}
-                aria-label={copied ? "Copied" : "Copy"}
-                title={copied ? "Copied" : "Copy"}
-                onClick={onCopy}
-              >
-                {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
-              </Button>
-            </>
-          )}
-          <UpdateButton />
-          <Button variant="ghost-muted" size="icon-sm" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
-            <Settings2Icon />
-          </Button>
           {/* aria-disabled rather than disabled: a disabled button gets no pointer events, so T3's
               "not allowed" cursor (aria-disabled:cursor-not-allowed) would never show. */}
           <Button
