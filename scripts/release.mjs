@@ -21,3 +21,7 @@ if (!sh(`git tag --list ${tag}`)) run(`git tag ${tag}`);
 run(`git push origin main ${tag}`);
 run("pnpm build");
 run("pnpm exec electron-builder --win --publish always");
+// electron-builder sometimes drops the .blockmap upload (it is what makes updates download only
+// the changed parts); upload it again, replacing it if it did arrive.
+const blockmap = `release/Fancy-Dictator-Setup-${version}.exe.blockmap`;
+run(`gh release upload ${tag} "${blockmap}" --clobber --repo OtakuGamerAds/fancy-dictator`);
