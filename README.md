@@ -11,7 +11,29 @@ Copy the text, or send it to your recent messages.
 - The first ✕ clears the box (`Ctrl+Z` brings it back); the next one hides the window.
 - Lives in the tray; right-click the tray icon for Settings or Quit.
 
-## Run
+## Install, update, uninstall
+
+Like T3 Code:
+
+- **Install:** download `Fancy-Dictator-Setup-x.y.z.exe` from
+  [Releases](https://github.com/OtakuGamerAds/fancy-dictator/releases/latest) and run it. It
+  installs for your user only (no admin), adds a Start menu shortcut, and starts the app.
+- **Update:** the app checks for a new version at startup and every 4 minutes. When there is
+  one, an update button appears beside Settings: click to download (a ring shows progress),
+  click again to restart into the new version.
+- **Uninstall:** Windows Settings → Apps → Fancy Dictator → Uninstall. It also removes your
+  settings and history.
+
+The installer is not code-signed, so Windows SmartScreen may warn the first time
+("More info" → "Run anyway").
+
+## Publish a new version
+
+1. Bump `version` in `package.json` and commit.
+2. `pnpm release` — tags the commit, builds the installer, and publishes it to GitHub Releases
+   (using the GitHub CLI's login). Installed apps pick it up through their update button.
+
+## Run from source
 
 ```sh
 pnpm install
