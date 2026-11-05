@@ -8,6 +8,8 @@ const path = require("path");
 
 const DEFAULT_SETTINGS = {
   sonioxApiKey: "",
+  // "latest" (the newest real-time model Soniox lists) or a specific model id.
+  sonioxModel: "latest",
   // An organization API key (snx_org_…), only used to read the balance.
   sonioxOrgKey: "",
   hotkey: "Control+Alt+Space",

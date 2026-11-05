@@ -2,6 +2,8 @@ export interface Settings {
   sonioxApiKey: string;
   /** Organization API key (snx_org_…), only for reading the balance. Optional. */
   sonioxOrgKey: string;
+  /** "latest" (always the newest real-time model) or a specific Soniox model id. */
+  sonioxModel: string;
   hotkey: string;
   micDeviceId: string;
   languages: string[];
@@ -31,6 +33,10 @@ export interface DesktopApi {
   getSettings(): Promise<Settings>;
   /** The Soniox prepaid balance; error null with no balance means no organization key is set. */
   getBalance(): Promise<{ error: string | null; availableUsd?: string; invoiced?: boolean }>;
+  /** Soniox's real-time models, newest first, and which one "latest" means right now. */
+  listModels(apiKey?: string): Promise<{ models: { id: string; name: string }[]; latest: string; error: string | null }>;
+  /** The model id the next recording uses. */
+  resolveModel(): Promise<string>;
   saveSettings(patch: Partial<Settings>): Promise<{ settings: Settings; hotkeyError: string | null }>;
   getHistory(): Promise<HistoryEntry[]>;
   addHistory(entry: HistoryEntry): Promise<HistoryEntry[]>;

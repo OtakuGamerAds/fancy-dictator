@@ -60,6 +60,8 @@ export interface SonioxSession {
 
 export interface StartOptions {
   apiKey: string;
+  /** The Soniox model id (defaults to SONIOX_MODEL). */
+  model?: string;
   languageHints: string[];
   deviceId?: string;
   onText(finalText: string, pendingText: string): void;
@@ -135,7 +137,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     ws.send(
       JSON.stringify({
         api_key: options.apiKey,
-        model: SONIOX_MODEL,
+        model: options.model || SONIOX_MODEL,
         audio_format: "pcm_s16le",
         sample_rate: SAMPLE_RATE,
         num_channels: 1,

@@ -178,8 +178,11 @@ export function App() {
       setStartedAt(Date.now());
       setNow(Date.now());
       try {
+        // "Latest" is resolved from Soniox's model list, so new models are used without an app update.
+        const model = await window.api.resolveModel();
         const session = await startSoniox({
           apiKey: current.sonioxApiKey,
+          model,
           languageHints: current.languages,
           deviceId: current.micDeviceId || undefined,
           onText: (final, pending) => {
@@ -378,7 +381,7 @@ export function App() {
     let last = "";
     const tick = () => {
       const elements = [
-        ...document.querySelectorAll<HTMLElement>("#root > div, [data-slot=select-popup]"),
+        ...document.querySelectorAll<HTMLElement>("#root > div, [data-slot=select-popup], [data-slot=popover-popup]"),
       ];
       const rects = elements.map((el) => {
         const r = el.getBoundingClientRect();
@@ -533,6 +536,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
     const demoSettings: Settings = {
       sonioxApiKey: "sk-demo-1234567890",
       sonioxOrgKey: "",
+      sonioxModel: "latest",
       hotkey: "Control+Alt+Space",
       micDeviceId: "",
       languages: ["ar", "en"],

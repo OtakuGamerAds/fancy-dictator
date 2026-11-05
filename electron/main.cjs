@@ -21,6 +21,7 @@ const fs = require("fs");
 const path = require("path");
 const store = require("./store.cjs");
 const updater = require("./updater.cjs");
+const models = require("./models.cjs");
 
 /**
  * The window never changes size: resizing a transparent window makes Windows flash the old
@@ -319,6 +320,7 @@ function sanitize(patch) {
   const out = {};
   if (typeof patch.sonioxApiKey === "string") out.sonioxApiKey = patch.sonioxApiKey.trim();
   if (typeof patch.sonioxOrgKey === "string") out.sonioxOrgKey = patch.sonioxOrgKey.trim();
+  if (typeof patch.sonioxModel === "string" && patch.sonioxModel) out.sonioxModel = patch.sonioxModel;
   if (typeof patch.hotkey === "string" && patch.hotkey) out.hotkey = patch.hotkey;
   if (typeof patch.micDeviceId === "string") out.micDeviceId = patch.micDeviceId;
   if (Array.isArray(patch.languages)) out.languages = patch.languages.filter((l) => typeof l === "string");
@@ -329,6 +331,12 @@ function sanitize(patch) {
 function registerIpc() {
   ipcMain.handle("settings:get", () => settings);
   ipcMain.handle("balance:get", () => fetchBalance());
+  ipcMain.handle("models:list", (_e, apiKey) =>
+    SNAPSHOT
+      ? { models: [{ id: "stt-rt-v6", name: "stt-rt-v6" }, { id: "stt-rt-v5", name: "stt-rt-v5" }], latest: "stt-rt-v6", error: null }
+      : models.listModels(String(apiKey || settings.sonioxApiKey), { force: true }),
+  );
+  ipcMain.handle("models:resolve", () => models.resolveModel(settings.sonioxApiKey, settings.sonioxModel));
   ipcMain.handle("settings:save", (_e, patch) => {
     const previous = settings.hotkey;
     settings = store.saveSettings(sanitize(patch || {}));
@@ -416,6 +424,28 @@ async function runSnapshots() {
     console.log(`[snapshot] 7-settings-select-${i + 1}.png`);
     win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
     await new Promise((r) => setTimeout(r, 500));
+  }
+  // The model picker in Settings, open.
+  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("6-settings")`);
+  await new Promise((r) => setTimeout(r, 500));
+  const picker = await win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector('[data-slot=popover-trigger]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  if (picker) {
+    win.webContents.sendInputEvent({ type: "mouseDown", ...picker, button: "left", clickCount: 1 });
+    win.webContents.sendInputEvent({ type: "mouseUp", ...picker, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 800));
+    const rect = await win.webContents.executeJavaScript(`(() => {
+      const card = document.querySelector("#root > div").getBoundingClientRect();
+      const popup = document.querySelector("[data-slot=popover-popup]")?.getBoundingClientRect();
+      const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
+      return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+    })()`);
+    fs.writeFileSync(path.join(outDir, "7-model-picker.png"), (await win.webContents.capturePage(rect)).toPNG());
+    console.log("[snapshot] 7-model-picker.png");
   }
   quitting = true;
   app.quit();

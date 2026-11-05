@@ -1,6 +1,7 @@
 import { ChevronLeftIcon, EyeIcon, EyeOffIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
+import { type ModelList, ModelPicker } from "~/components/ModelPicker";
 import { Button } from "~/components/ui/button";
 import { Input } from "~/components/ui/input";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
@@ -30,6 +31,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
   const [balanceKey, setBalanceKey] = useState(0);
+  const modelList = useModelList(draft.sonioxApiKey);
 
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
@@ -137,6 +139,10 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
               {showKey ? <EyeOffIcon /> : <EyeIcon />}
             </Button>
           </div>
+        </Row>
+
+        <Row label="Model" description="Latest switches to Soniox's newest model by itself">
+          <ModelPicker value={draft.sonioxModel} list={modelList} onChange={(value) => update("sonioxModel", value)} />
         </Row>
 
         <Row label="Organization API key" description="Optional, only to show your balance (snx_org_…)">
@@ -335,4 +341,22 @@ function Balance({ refreshKey }: { refreshKey: number }) {
       </span>
     </span>
   );
+}
+
+/** Soniox's real-time models for the key being edited (fetched again shortly after it changes). */
+function useModelList(apiKey: string): ModelList {
+  const [list, setList] = useState<ModelList>(null);
+  useEffect(() => {
+    let current = true;
+    const timer = setTimeout(() => {
+      void window.api.listModels(apiKey).then((result) => {
+        if (current) setList(result);
+      });
+    }, 400);
+    return () => {
+      current = false;
+      clearTimeout(timer);
+    };
+  }, [apiKey]);
+  return list;
 }
