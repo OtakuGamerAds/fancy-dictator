@@ -7,20 +7,23 @@ import { cn, formatAgo, formatDuration, textDirection } from "~/lib/utils";
 
 interface HistoryPanelProps {
   history: HistoryEntry[];
+  /** "session": just the messages cleared since the window opened; "recent": the latest few. */
+  mode: "session" | "recent";
+  sessionIds: string[];
   onCopy(text: string): Promise<void>;
   onDelete(id: string): void;
   onClear(): void;
 }
 
+/** Opened by hand, the list shows this many; each "Show more" adds this many older ones. */
+const PAGE = 3;
+
 /**
  * Recent transcriptions under the composer, drawn like your own messages in T3 Code's
  * timeline (TimelineUserMessageRow): end-aligned bg-message bubbles, actions on hover.
  */
-/** Only the latest few show; the rest wait behind "Show more". */
-const RECENT_COUNT = 3;
-
-export function HistoryPanel({ history, onCopy, onDelete, onClear }: HistoryPanelProps) {
-  const [showAll, setShowAll] = useState(false);
+export function HistoryPanel({ history, mode, sessionIds, onCopy, onDelete, onClear }: HistoryPanelProps) {
+  const [extra, setExtra] = useState(0);
   // The gaps between messages drag the window too, unless the list scrolls: a drag region
   // would swallow the mouse wheel.
   const listRef = useRef<HTMLUListElement>(null);
@@ -35,8 +38,11 @@ export function HistoryPanel({ history, onCopy, onDelete, onClear }: HistoryPane
     for (const child of el.children) observer.observe(child);
     return () => observer.disconnect();
   });
-  const visible = showAll ? history : history.slice(0, RECENT_COUNT);
-  const hiddenCount = history.length - visible.length;
+  const base = mode === "session" ? history.filter((e) => sessionIds.includes(e.id)) : history.slice(0, PAGE);
+  const rest = history.filter((e) => !base.includes(e));
+  const shown = new Set([...base, ...rest.slice(0, extra)]);
+  const visible = history.filter((e) => shown.has(e)); // newest first, as stored
+  const remaining = history.length - visible.length;
   return (
     <div className="px-2 pt-1 pb-2">
       {history.length === 0 ? (
@@ -49,10 +55,10 @@ export function HistoryPanel({ history, onCopy, onDelete, onClear }: HistoryPane
             ))}
           </ul>
           <div className="flex items-center justify-center gap-1 pt-1">
-            {(hiddenCount > 0 || showAll) && history.length > RECENT_COUNT && (
+            {remaining > 0 && (
               <>
-                <Button variant="ghost-muted" size="xs" onClick={() => setShowAll((v) => !v)}>
-                  {showAll ? "Show less" : `Show ${hiddenCount} more`}
+                <Button variant="ghost-muted" size="xs" onClick={() => setExtra((n) => n + PAGE)}>
+                  Show {Math.min(PAGE, remaining)} more
                 </Button>
                 <span className="text-muted-foreground/60 text-xs">·</span>
               </>

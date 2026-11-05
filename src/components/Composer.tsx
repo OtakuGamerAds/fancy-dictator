@@ -1,5 +1,4 @@
 import {
-  ArrowUpIcon,
   CheckIcon,
   ChevronDownIcon,
   CopyIcon,
@@ -48,12 +47,12 @@ interface ComposerProps {
   onMic(): void;
   onStop(): void;
   onCopy(): void;
-  /** Send the box to the history (stopping a recording first), like T3's send button. */
-  onSend(): void;
+  /** Save the box to the history and empty it (stopping a recording first); Ctrl+Enter too. */
+  onClear(): void;
   languages: string[];
   onLanguagesChange(languages: string[]): void;
   onToggleHistory(): void;
-  /** Clear the box (or hide the window when it is already empty). */
+  /** Close the window. */
   onClose(): void;
   onOpenSettings(): void;
 }
@@ -81,7 +80,7 @@ export function Composer(props: ComposerProps) {
         </div>
         <div className="flex shrink-0 items-center gap-1">
           <LanguagePicker value={props.languages} disabled={listening} onChange={props.onLanguagesChange} />
-          <SendButton {...props} />
+          <ClearButton {...props} />
         </div>
       </div>
       {listening ? <RecordingFooter {...props} /> : <IdleFooter {...props} />}
@@ -89,20 +88,23 @@ export function Composer(props: ComposerProps) {
   );
 }
 
-/** T3 Code's send button (ChatComposer.tsx): a round message-action button with an up arrow. */
-function SendButton({ phase, text, onSend }: ComposerProps) {
-  const canSend = phase === "recording" || text.trim().length > 0;
+/**
+ * The clear button, like the ✕ in a search field: only there when the box has something.
+ * It keeps the text (it moves to the history) and empties the box; Ctrl+Z brings it back.
+ */
+function ClearButton({ phase, text, onClear }: ComposerProps) {
+  if (phase !== "recording" && !text.trim()) return null;
   return (
-    <button
-      type="button"
-      aria-label="Send to history (Ctrl+Enter)"
-      title="Send to history (Ctrl+Enter)"
-      disabled={!canSend}
-      onClick={onSend}
-      className="flex size-7 shrink-0 cursor-pointer items-center justify-center rounded-full bg-primary text-primary-foreground hover:bg-primary/90 disabled:pointer-events-none disabled:opacity-64"
+    <Button
+      variant="ghost-muted"
+      size="icon-xs"
+      className="rounded-full before:rounded-full"
+      aria-label="Clear (keeps it in history) · Ctrl+Enter"
+      title="Clear (keeps it in history) · Ctrl+Enter"
+      onClick={onClear}
     >
-      <ArrowUpIcon className="size-4" />
-    </button>
+      <XIcon />
+    </Button>
   );
 }
 
@@ -349,7 +351,7 @@ function IdleFooter({
           >
             <ChevronDownIcon className={cn("transition-transform duration-200", historyOpen && "rotate-180")} />
           </Button>
-          <CloseButton onClick={onClose} label={hasText ? "Clear" : "Close"} />
+          <CloseButton onClick={onClose} />
         </>
       }
     />
