@@ -68,14 +68,14 @@ export function Composer(props: ComposerProps) {
   return (
     <div>
       {listening ? <RecordingToolbar {...props} /> : <IdleToolbar {...props} />}
-      {/* The text box: T3's composer surface color on the black window. As in T3, the
-          language picker (T3: the model picker) and the primary button sit inside it, at the end. */}
+      {/* The text box, laid out like T3's composer: the text across the full width, and under
+          it a row of controls (T3: attach on the left; model picker and send on the right). */}
       <div
         data-slot="composer-box"
         dir="ltr"
-        className="relative mx-2 mt-2 mb-2 flex items-end gap-2 rounded-xl border border-(--composer-outline) bg-card py-1.5 ps-3.5 pe-1.5 inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
+        className="relative mx-2 mt-2 mb-2 rounded-xl border border-(--composer-outline) bg-card inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
       >
-        <div className="min-w-0 flex-1 py-0.5">
+        <div className="px-3.5 pt-2.5 pb-1">
           {errorOnly ? (
             <p className={cn(TEXT_AREA, "text-center text-error-foreground")}>{props.error}</p>
           ) : (
@@ -83,10 +83,12 @@ export function Composer(props: ComposerProps) {
           )}
           {props.error && !errorOnly && <p className="mt-1 text-error-foreground text-xs">{props.error}</p>}
         </div>
-        <div className="flex shrink-0 items-center gap-1">
+        <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
           <CopyButton {...props} />
-          <LanguagePicker value={props.languages} disabled={listening} onChange={props.onLanguagesChange} />
-          <ClearButton {...props} />
+          <div className="flex items-center gap-1">
+            <LanguagePicker value={props.languages} disabled={listening} onChange={props.onLanguagesChange} />
+            <ClearButton {...props} />
+          </div>
         </div>
       </div>
     </div>
@@ -133,7 +135,7 @@ function ClearButton({ phase, text, onClear }: ComposerProps) {
   );
 }
 
-const PLACEHOLDER = "Press the mic and start talking";
+const PLACEHOLDER = "Press the mic and talk";
 /** Text metrics shared by the textarea and its mirror; they must lay out identically. */
 const FIELD_TEXT = "whitespace-pre-wrap wrap-break-word text-sm leading-relaxed";
 
@@ -333,7 +335,7 @@ function IdleToolbar({
           </Button>
           <UpdateButton />
           {hasText && (
-            <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[560px]/footer:inline">
+            <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[400px]/footer:inline">
               {durationMs > 0 && `${formatDuration(durationMs)} · `}
               {countWords(text)} words
             </span>

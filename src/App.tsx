@@ -10,8 +10,8 @@ import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestActi
 type View = "main" | "settings";
 
 const LEVEL_BARS = 18;
-const FULL_WIDTH = 736; // T3 Code's composer width
-const COMPACT_WIDTH = 380;
+/** One width for everything: text wraps and the card grows downward instead of wider. */
+const CARD_WIDTH = 420;
 const NEEDS_KEY = "Paste your Soniox API key to start dictating.";
 
 /** Keeps the latest value readable from long-lived listeners. */
@@ -348,28 +348,20 @@ export function App() {
 
   // ── Size: the card animates its height; the window follows ────────────
 
-  // The content takes its natural size: as wide as its longest line (between the compact
-  // width and T3's composer width, after which text wraps), as tall as it needs. The card
-  // animates to that size, so it widens bit by bit as words arrive, then grows downward.
+  // The width never changes; the content is as tall as it needs and the card animates to it.
   const contentRef = useRef<HTMLDivElement>(null);
-  const [contentSize, setContentSize] = useState({ width: COMPACT_WIDTH - 2, height: 95 });
+  const [contentHeight, setContentHeight] = useState(90);
 
   useLayoutEffect(() => {
     const el = contentRef.current;
     if (!el) return;
-    // Rounded up: a fractional width would leave the right gap half a pixel short.
-    const observer = new ResizeObserver(() => {
-      const r = el.getBoundingClientRect();
-      setContentSize({ width: Math.ceil(r.width), height: Math.ceil(r.height) });
-    });
+    // Rounded up, so a fractional height never trims the gap under the content.
+    const observer = new ResizeObserver(() => setContentHeight(Math.ceil(el.getBoundingClientRect().height)));
     observer.observe(el);
     return () => observer.disconnect();
   }, [view]);
 
-  // History and Settings always use the full width.
-  const fullWidth = view === "settings" || historyOpen;
-  const cardWidth = contentSize.width + 2; // + left and right border
-  const cardHeight = contentSize.height + 2; // + top and bottom border
+  const cardHeight = contentHeight + 2; // + top and bottom border
 
   // The window has a fixed size and the card animates inside it (resizing a transparent
   // window flickers). The main process only moves the window up if the card would leave the screen.
@@ -424,19 +416,15 @@ export function App() {
     // The card hugs the window's right edge, so the ✕ in its corner stays under the mouse
     // while the card shrinks or grows.
     <div
-      className="drag-region ms-auto overflow-hidden rounded-2xl border border-border bg-background transition-[width,height] duration-200 ease-drawer"
-      style={{ width: cardWidth, height: cardHeight }}
+      className="drag-region overflow-hidden rounded-2xl border border-border bg-background transition-[height] duration-200 ease-drawer"
+      style={{ width: CARD_WIDTH, height: cardHeight }}
     >
       <div
         ref={contentRef}
         // flow-root keeps the last child's bottom margin inside, so it is measured (and the
         // card does not cut the gap under the text box).
         className="flow-root"
-        style={{
-          width: "max-content",
-          minWidth: (fullWidth ? FULL_WIDTH : COMPACT_WIDTH) - 2,
-          maxWidth: FULL_WIDTH - 2,
-        }}
+        style={{ width: CARD_WIDTH - 2 }}
       >
         {view === "main" && (
           <>
@@ -668,7 +656,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
       show: async (name) => {
         scenes[name]?.(setters.current);
         await frame();
-        await new Promise((r) => setTimeout(r, 300));
+        await new Promise((r) => setTimeout(r, 600)); // past the 200ms height animation
         const card = document.querySelector("#root > div")?.getBoundingClientRect();
         const box = document.querySelector("[data-slot=composer-box]")?.getBoundingClientRect();
         const bar = document.querySelector("[data-slot=composer-toolbar]")?.getBoundingClientRect();

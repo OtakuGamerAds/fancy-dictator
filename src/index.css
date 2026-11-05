@@ -7,6 +7,9 @@
 @custom-variant dark (&:is(.dark, .dark *));
 
 @theme {
+  /* A desktop window, however narrow: T3's components use their desktop sizes from `sm:`
+     up (640px), so `sm` starts at 0 here, or the 420px window would get mobile sizes. */
+  --breakpoint-sm: 0px;
   --font-sans:
     -apple-system, BlinkMacSystemFont, "Inter Variable", "Segoe UI", system-ui, sans-serif;
   --font-mono:

@@ -24,11 +24,11 @@ const updater = require("./updater.cjs");
 
 /**
  * The window never changes size: resizing a transparent window makes Windows flash the old
- * frame for a moment. It is as wide as T3 Code's composer and tall enough for every view;
- * the card animates inside it, and the transparent rest lets clicks through (see
- * "Click-through" below).
+ * frame for a moment. It is as wide as the card (a fixed 420px) and tall enough for every
+ * view; the card animates its height inside it, and the transparent rest lets clicks through
+ * (see "Click-through" below).
  */
-const WIDTH = 736;
+const WIDTH = 420;
 const HEIGHT = 760;
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const SNAPSHOT = process.env.FD_SNAPSHOT === "1";
@@ -41,22 +41,21 @@ let quitting = false;
 
 // ── Window ────────────────────────────────────────────────────────────────
 
-/**
- * The window is positioned by its top-center. The card sits against the window's right edge
- * (so the ✕ button never moves), so by default the window is shifted left until the
- * collapsed card is centered on screen.
- */
+/** The window is positioned by its top-center, which is also the card's. */
 function defaultAnchor() {
   const { workArea } = screen.getPrimaryDisplay();
   return {
-    cx: Math.round(workArea.x + workArea.width / 2 - (WIDTH - 380) / 2),
+    cx: Math.round(workArea.x + workArea.width / 2),
     y: Math.round(workArea.y + workArea.height * 0.18),
   };
 }
 
 /** Use the saved anchor only if it is still on a connected display. */
 function savedAnchor() {
-  const pos = settings.windowAnchor;
+  // `cardAnchor` is the card's top-center. Older versions saved the 736px window's center,
+  // with the card at its right edge: the card's center was 160px to the right of it.
+  const old = settings.windowAnchor;
+  const pos = settings.cardAnchor ?? (old ? { cx: old.cx + 160, y: old.y } : null);
   if (!pos || !Number.isFinite(pos.cx) || !Number.isFinite(pos.y)) return null;
   const onScreen = screen.getAllDisplays().some(({ workArea: a }) => {
     return pos.cx > a.x + 40 && pos.cx < a.x + a.width - 40 && pos.y >= a.y && pos.y < a.y + a.height - 40;
@@ -110,7 +109,7 @@ function createWindow() {
   win.on("moved", () => {
     if (!windowAlive()) return;
     const { x, y, width } = win.getBounds();
-    settings = store.saveSettings({ windowAnchor: { cx: Math.round(x + width / 2), y } });
+    settings = store.saveSettings({ cardAnchor: { cx: Math.round(x + width / 2), y } });
   });
   win.on("close", (event) => {
     if (quitting) return;

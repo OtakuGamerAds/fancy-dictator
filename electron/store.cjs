@@ -12,7 +12,7 @@ const DEFAULT_SETTINGS = {
   micDeviceId: "",
   languages: ["ar", "en"],
   runOnStartup: false,
-  windowAnchor: null,
+  cardAnchor: null,
 };
 
 const MAX_HISTORY = 50;

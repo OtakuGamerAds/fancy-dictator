@@ -188,7 +188,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
           </div>
         </Row>
 
-        <Row label="Run on startup" description="Works in the installed app">
+        <Row label="Run on startup" description="Works in the installed app" inline>
           <Switch checked={draft.runOnStartup} onCheckedChange={(checked) => update("runOnStartup", checked)} />
         </Row>
       </div>
@@ -203,14 +203,39 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
   );
 }
 
-function Row({ label, description, children }: { label: string; description?: string; children: React.ReactNode }) {
-  return (
-    <div className="flex items-center justify-between gap-6 py-3">
-      <div className="min-w-0">
-        <p className="text-foreground text-sm">{label}</p>
-        {description && <p className="text-muted-foreground text-xs">{description}</p>}
+/**
+ * One setting. In the narrow (420px) window the label sits above its control; a switch stays
+ * beside its label (`inline`), where it reads naturally.
+ */
+function Row({
+  label,
+  description,
+  inline = false,
+  children,
+}: {
+  label: string;
+  description?: string;
+  inline?: boolean;
+  children: React.ReactNode;
+}) {
+  const text = (
+    <div className="min-w-0">
+      <p className="text-foreground text-sm">{label}</p>
+      {description && <p className="text-muted-foreground text-xs">{description}</p>}
+    </div>
+  );
+  if (inline) {
+    return (
+      <div className="flex items-center justify-between gap-4 py-3">
+        {text}
+        {children}
       </div>
-      <div className="flex w-80 shrink-0 justify-end">{children}</div>
+    );
+  }
+  return (
+    <div className="flex flex-col gap-2 py-3">
+      {text}
+      <div className="flex w-full">{children}</div>
     </div>
   );
 }
