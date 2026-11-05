@@ -34,7 +34,8 @@ export interface DesktopApi {
   replaceHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]>;
   copy(text: string): Promise<void>;
   reportContentHeight(height: number): void;
-  setIgnoreMouse(ignore: boolean): void;
+  /** The parts of the window that take the mouse (the card, open dropdowns); the rest clicks through. */
+  setHitRects(rects: { x: number; y: number; width: number; height: number }[]): void;
   hide(): void;
   suspendHotkey(): void;
   resumeHotkey(): void;

@@ -26,7 +26,7 @@ const updater = require("./updater.cjs");
  * The window never changes size: resizing a transparent window makes Windows flash the old
  * frame for a moment. It is as wide as T3 Code's composer and tall enough for every view;
  * the card animates inside it, and the transparent rest lets clicks through (see
- * "window:ignore-mouse").
+ * "Click-through" below).
  */
 const WIDTH = 736;
 const HEIGHT = 760;
@@ -123,11 +123,51 @@ function showWindow() {
   if (!win) return;
   win.show();
   win.focus();
+  startHitTesting();
 }
 
 function hideWindow() {
   if (!win) return;
   win.hide();
+  stopHitTesting();
+}
+
+// ── Click-through ─────────────────────────────────────────────────────────
+// Only the card (and an open dropdown) should take the mouse; the transparent rest of the
+// window must let clicks reach the app behind it. The renderer reports those rectangles, and
+// here the cursor is checked against them every frame. This must not rely on mouse events
+// forwarded to the page: on Windows that forwarding stops once another app takes focus,
+// which left the window ignoring clicks on the card itself, so they landed on the app behind.
+
+let hitRects = []; // [{ x, y, width, height }] in window coordinates
+let hitTimer = null;
+let ignoring = null;
+
+function setIgnoring(ignore) {
+  if (!win || ignore === ignoring) return;
+  ignoring = ignore;
+  win.setIgnoreMouseEvents(ignore);
+}
+
+function updateClickThrough() {
+  if (!win || !win.isVisible()) return;
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = win.getBounds();
+  const x = cursor.x - bounds.x;
+  const y = cursor.y - bounds.y;
+  const overContent = hitRects.some((r) => x >= r.x && x < r.x + r.width && y >= r.y && y < r.y + r.height);
+  setIgnoring(!overContent);
+}
+
+function startHitTesting() {
+  if (hitTimer) return;
+  hitTimer = setInterval(updateClickThrough, 16);
+  updateClickThrough();
+}
+
+function stopHitTesting() {
+  clearInterval(hitTimer);
+  hitTimer = null;
 }
 
 /** If the card would run past the bottom of the screen, move the window up just enough. */
@@ -270,10 +310,9 @@ function registerIpc() {
   ipcMain.handle("history:replace", (_e, entries) => store.replaceHistory(entries));
   ipcMain.handle("clipboard:write", (_e, text) => clipboard.writeText(String(text ?? "")));
   ipcMain.on("window:content-height", (_e, height) => keepOnScreen(Number(height)));
-  // The renderer reports whether the mouse is over the card (or an open popup). Elsewhere the
-  // window is see-through for clicks; `forward` keeps mouse moves coming so it can switch back.
-  ipcMain.on("window:ignore-mouse", (_e, ignore) => {
-    if (win) win.setIgnoreMouseEvents(Boolean(ignore), { forward: true });
+  ipcMain.on("window:hit-rects", (_e, rects) => {
+    hitRects = Array.isArray(rects) ? rects : [];
+    updateClickThrough();
   });
   ipcMain.on("window:hide", hideWindow);
   ipcMain.on("hotkey:suspend", () => {

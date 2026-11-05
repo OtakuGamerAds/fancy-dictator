@@ -74,7 +74,10 @@ export function App() {
     const current = latestHistory.current;
     const removed = current.filter((entry) => ids.includes(entry.id));
     if (removed.length === 0) return;
-    setHistory(await window.api.replaceHistory(current.filter((entry) => !ids.includes(entry.id))));
+    const remaining = current.filter((entry) => !ids.includes(entry.id));
+    setHistory(await window.api.replaceHistory(remaining));
+    // Nothing left to show: fold the drawer up (Ctrl+Z still brings the messages back).
+    if (remaining.length === 0) setHistoryOpen(false);
     showUndoNotice({ action: ids.length > 1 ? "Cleared" : "Deleted", undo: () => restoreEntries(removed) });
   };
 
@@ -347,20 +350,30 @@ export function App() {
     window.api.reportContentHeight(cardHeight);
   }, [cardHeight]);
 
-  // Clicks pass through the transparent part of the window to whatever is behind it.
+  // Tell the main process which parts of the window take the mouse: the card and any open
+  // dropdown. Everywhere else clicks go through to the app behind. Checked every frame, so it
+  // follows the card while it animates; only changes are sent.
   useEffect(() => {
-    let ignoring: boolean | null = null;
-    const isBackground = (el: Element | null) =>
-      !el || el === document.documentElement || el === document.body || el.id === "root";
-    const onMove = (event: MouseEvent) => {
-      const ignore = isBackground(document.elementFromPoint(event.clientX, event.clientY));
-      if (ignore === ignoring) return;
-      ignoring = ignore;
-      window.api.setIgnoreMouse(ignore);
+    let frame = 0;
+    let last = "";
+    const tick = () => {
+      const elements = [
+        ...document.querySelectorAll<HTMLElement>("#root > div, [data-slot=select-popup]"),
+      ];
+      const rects = elements.map((el) => {
+        const r = el.getBoundingClientRect();
+        return { x: Math.floor(r.left), y: Math.floor(r.top), width: Math.ceil(r.width), height: Math.ceil(r.height) };
+      });
+      const key = JSON.stringify(rects);
+      if (key !== last) {
+        last = key;
+        window.api.setHitRects(rects);
+      }
+      frame = requestAnimationFrame(tick);
     };
-    window.addEventListener("mousemove", onMove);
-    return () => window.removeEventListener("mousemove", onMove);
-  }, [latest]);
+    frame = requestAnimationFrame(tick);
+    return () => cancelAnimationFrame(frame);
+  }, []);
 
   useSnapshotHooks({
     setView,

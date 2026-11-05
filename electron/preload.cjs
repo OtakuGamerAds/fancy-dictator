@@ -15,7 +15,7 @@ contextBridge.exposeInMainWorld("api", {
   replaceHistory: (entries) => ipcRenderer.invoke("history:replace", entries),
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),
   reportContentHeight: (height) => ipcRenderer.send("window:content-height", height),
-  setIgnoreMouse: (ignore) => ipcRenderer.send("window:ignore-mouse", ignore),
+  setHitRects: (rects) => ipcRenderer.send("window:hit-rects", rects),
   hide: () => ipcRenderer.send("window:hide"),
   suspendHotkey: () => ipcRenderer.send("hotkey:suspend"),
   resumeHotkey: () => ipcRenderer.send("hotkey:resume"),
