@@ -1,5 +1,7 @@
 export interface Settings {
   sonioxApiKey: string;
+  /** Organization API key (snx_org_…), only for reading the balance. Optional. */
+  sonioxOrgKey: string;
   hotkey: string;
   micDeviceId: string;
   languages: string[];
@@ -27,6 +29,8 @@ export interface UpdateState {
 
 export interface DesktopApi {
   getSettings(): Promise<Settings>;
+  /** The Soniox prepaid balance; error null with no balance means no organization key is set. */
+  getBalance(): Promise<{ error: string | null; availableUsd?: string; invoiced?: boolean }>;
   saveSettings(patch: Partial<Settings>): Promise<{ settings: Settings; hotkeyError: string | null }>;
   getHistory(): Promise<HistoryEntry[]>;
   addHistory(entry: HistoryEntry): Promise<HistoryEntry[]>;

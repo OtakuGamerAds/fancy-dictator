@@ -532,6 +532,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
     const levels = Array.from({ length: LEVEL_BARS }, (_, i) => 0.02 + 0.12 * Math.abs(Math.sin(i * 0.9)));
     const demoSettings: Settings = {
       sonioxApiKey: "sk-demo-1234567890",
+      sonioxOrgKey: "",
       hotkey: "Control+Alt+Space",
       micDeviceId: "",
       languages: ["ar", "en"],

@@ -29,6 +29,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
+  const [balanceKey, setBalanceKey] = useState(0);
 
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft((d) => ({ ...d, [key]: value }));
 
@@ -86,6 +87,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
         setError(result.hotkeyError);
         setDraft((d) => ({ ...d, hotkey: result.settings.hotkey }));
       } else {
+        setBalanceKey((n) => n + 1);
         onSaved(result.settings);
       }
     } finally {
@@ -113,7 +115,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
       )}
 
       <div className="divide-y divide-border px-4">
-        <Row label="Soniox API key" description="Stored encrypted on this device">
+        <Row label="Soniox API key" description="Stored encrypted on this device" aside={<Balance refreshKey={balanceKey} />}>
           <div className="relative w-full">
             <Input
               nativeInput
@@ -135,6 +137,18 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
               {showKey ? <EyeOffIcon /> : <EyeIcon />}
             </Button>
           </div>
+        </Row>
+
+        <Row label="Organization API key" description="Optional, only to show your balance (snx_org_…)">
+          <Input
+            nativeInput
+            type={showKey ? "text" : "password"}
+            value={draft.sonioxOrgKey}
+            placeholder="Paste an organization API key"
+            spellCheck={false}
+            className="[&_input]:ps-9 [&_input]:pe-9 [&_input]:text-center"
+            onChange={(event) => update("sonioxOrgKey", event.target.value)}
+          />
         </Row>
 
         <Row label="Shortcut" description="Shows and hides Fancy Dictator">
@@ -211,17 +225,23 @@ function Row({
   label,
   description,
   inline = false,
+  aside,
   children,
 }: {
   label: string;
   description?: string;
   inline?: boolean;
+  /** Shown at the right of the label, e.g. the balance. */
+  aside?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const text = (
-    <div className="min-w-0">
-      <p className="text-foreground text-sm">{label}</p>
-      {description && <p className="text-muted-foreground text-xs">{description}</p>}
+    <div className="flex items-start justify-between gap-3">
+      <div className="min-w-0">
+        <p className="text-foreground text-sm">{label}</p>
+        {description && <p className="text-muted-foreground text-xs">{description}</p>}
+      </div>
+      {aside}
     </div>
   );
   if (inline) {
@@ -287,4 +307,32 @@ function toAccelerator(event: KeyboardEvent): string | null {
   // Plain letters would fire while typing anywhere; require a modifier unless it is an F-key.
   if (modifiers.length === 0 && !/^F\d+$/.test(key)) return null;
   return [...modifiers, key].join("+");
+}
+
+/**
+ * The Soniox prepaid balance, read with the organization API key. Nothing shows until that key
+ * is set; a key without the balance permission says so.
+ */
+function Balance({ refreshKey }: { refreshKey: number }) {
+  const [state, setState] = useState<{ error: string | null; availableUsd?: string; invoiced?: boolean } | null>(null);
+  useEffect(() => {
+    let current = true;
+    void window.api.getBalance().then((result) => {
+      if (current) setState(result);
+    });
+    return () => {
+      current = false;
+    };
+  }, [refreshKey]);
+  if (!state || (!state.error && state.availableUsd === undefined)) return null;
+  if (state.error) return <span className="shrink-0 text-error-foreground text-xs">{state.error}</span>;
+  const amount = Number(state.availableUsd);
+  return (
+    <span className="shrink-0 text-end">
+      <span className="block text-muted-foreground text-xs">Balance</span>
+      <span className="font-semibold text-foreground text-sm tabular-nums">
+        {state.invoiced ? "Invoiced" : `$${Number.isFinite(amount) ? amount.toFixed(2) : state.availableUsd}`}
+      </span>
+    </span>
+  );
 }

@@ -8,6 +8,8 @@ const path = require("path");
 
 const DEFAULT_SETTINGS = {
   sonioxApiKey: "",
+  // An organization API key (snx_org_…), only used to read the balance.
+  sonioxOrgKey: "",
   hotkey: "Control+Alt+Space",
   micDeviceId: "",
   languages: ["ar", "en"],
@@ -57,12 +59,16 @@ function decrypt(stored) {
 
 function getSettings() {
   const raw = { ...DEFAULT_SETTINGS, ...readJson("settings.json", {}) };
-  return { ...raw, sonioxApiKey: decrypt(raw.sonioxApiKey) };
+  return { ...raw, sonioxApiKey: decrypt(raw.sonioxApiKey), sonioxOrgKey: decrypt(raw.sonioxOrgKey) };
 }
 
 function saveSettings(patch) {
   const next = { ...getSettings(), ...patch };
-  writeJson("settings.json", { ...next, sonioxApiKey: encrypt(next.sonioxApiKey) });
+  writeJson("settings.json", {
+    ...next,
+    sonioxApiKey: encrypt(next.sonioxApiKey),
+    sonioxOrgKey: encrypt(next.sonioxOrgKey),
+  });
   return next;
 }
 

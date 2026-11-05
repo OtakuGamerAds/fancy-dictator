@@ -8,6 +8,7 @@ const listen = (channel) => (callback) => {
 
 contextBridge.exposeInMainWorld("api", {
   getSettings: () => ipcRenderer.invoke("settings:get"),
+  getBalance: () => ipcRenderer.invoke("balance:get"),
   saveSettings: (patch) => ipcRenderer.invoke("settings:save", patch),
   getHistory: () => ipcRenderer.invoke("history:get"),
   addHistory: (entry) => ipcRenderer.invoke("history:add", entry),

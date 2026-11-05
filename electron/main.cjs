@@ -287,11 +287,38 @@ function applyLoginItem() {
   });
 }
 
+// ── Soniox balance ────────────────────────────────────────────────────────
+
+/**
+ * The prepaid balance, from Soniox's Organization API (GET /v1/organization/balance). It needs
+ * an organization API key (snx_org_…); the project key used for dictation cannot read it.
+ * Runs here rather than in the page, whose security policy only allows the dictation socket.
+ */
+async function fetchBalance() {
+  if (SNAPSHOT) return { error: null, availableUsd: "1.58" }; // `pnpm snapshot` shows the layout
+  const key = settings.sonioxOrgKey;
+  if (!key) return { error: null };
+  try {
+    const response = await fetch("https://api.soniox.com/v1/organization/balance", {
+      headers: { Authorization: `Bearer ${key}` },
+    });
+    if (response.status === 401 || response.status === 403) {
+      return { error: "This key can't read the balance" };
+    }
+    if (!response.ok) return { error: "Couldn't load the balance" };
+    const body = await response.json();
+    return { error: null, availableUsd: body.available_balance_usd, invoiced: Boolean(body.invoice_billing_enabled) };
+  } catch {
+    return { error: "Couldn't reach Soniox" };
+  }
+}
+
 // ── IPC ───────────────────────────────────────────────────────────────────
 
 function sanitize(patch) {
   const out = {};
   if (typeof patch.sonioxApiKey === "string") out.sonioxApiKey = patch.sonioxApiKey.trim();
+  if (typeof patch.sonioxOrgKey === "string") out.sonioxOrgKey = patch.sonioxOrgKey.trim();
   if (typeof patch.hotkey === "string" && patch.hotkey) out.hotkey = patch.hotkey;
   if (typeof patch.micDeviceId === "string") out.micDeviceId = patch.micDeviceId;
   if (Array.isArray(patch.languages)) out.languages = patch.languages.filter((l) => typeof l === "string");
@@ -301,6 +328,7 @@ function sanitize(patch) {
 
 function registerIpc() {
   ipcMain.handle("settings:get", () => settings);
+  ipcMain.handle("balance:get", () => fetchBalance());
   ipcMain.handle("settings:save", (_e, patch) => {
     const previous = settings.hotkey;
     settings = store.saveSettings(sanitize(patch || {}));
