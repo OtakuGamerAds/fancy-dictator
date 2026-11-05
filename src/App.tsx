@@ -6,6 +6,7 @@ import { SettingsView } from "~/components/SettingsView";
 import { describeStartError, type SonioxSession, startSoniox } from "~/lib/soniox";
 import type { HistoryEntry, Settings } from "~/lib/types";
 import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestAction } from "~/lib/undoNotice";
+import { joinSpoken } from "~/lib/utils";
 
 type View = "main" | "settings";
 
@@ -93,14 +94,16 @@ export function App() {
     setText(value);
   };
 
-  /** Add newly settled words at the end of the box, with a space if needed. */
+  // The box's text right after Soniox last wrote to it this recording (null before it has).
+  // While the box still ends there, Soniox's next piece continues it, often mid-word.
+  const spokenEnd = useRef<string | null>(null);
+  const spokenContinues = () => spokenEnd.current !== null && textRef.current === spokenEnd.current;
+
+  /** Add newly settled words at the end of the box. */
   const appendSpoken = (chunk: string) => {
     if (!chunk) return;
-    const current = textRef.current;
-    let piece = chunk;
-    if (!current.trim()) piece = piece.trimStart();
-    else if (!/\s$/.test(current) && !/^\s/.test(piece)) piece = ` ${piece}`;
-    writeText(current + piece);
+    writeText(joinSpoken(textRef.current, chunk, spokenContinues()));
+    spokenEnd.current = textRef.current;
   };
   const appendedLength = useRef(0); // how much of this session's final text is already in the box
   const pendingRef = useRef("");
@@ -170,6 +173,7 @@ export function App() {
       setView("main");
       setError(null);
       appendedLength.current = 0;
+      spokenEnd.current = null;
       pendingRef.current = "";
       textAtStart.current = textRef.current;
       setPendingText("");
@@ -436,6 +440,7 @@ export function App() {
               phase={phase}
               text={text}
               pendingText={pendingText}
+              pendingContinues={spokenEnd.current !== null && text === spokenEnd.current}
               error={error}
               elapsedMs={durationMs + (phase === "idle" ? 0 : now - startedAt)}
               durationMs={durationMs}

@@ -6,7 +6,7 @@ import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
 import { Waveform } from "~/components/Waveform";
-import { cn, countWords, formatDuration, textDirection } from "~/lib/utils";
+import { cn, countWords, formatDuration, joinSpoken, textDirection } from "~/lib/utils";
 
 export type Phase = "idle" | "starting" | "recording" | "stopping";
 
@@ -16,6 +16,8 @@ interface ComposerProps {
   text: string;
   /** While recording: the words Soniox is still deciding on (settled ones are already in `text`). */
   pendingText: string;
+  /** Whether `pendingText` carries on from Soniox's last settled piece (so no space is added). */
+  pendingContinues: boolean;
   error: string | null;
   elapsedMs: number;
   durationMs: number;
@@ -177,15 +179,15 @@ const FIELD_TEXT = "whitespace-pre-wrap wrap-break-word text-sm leading-relaxed"
  * The textarea sits over a "mirror" div that holds the same text (invisible) followed by the
  * gray words, so those appear right after your text, and the mirror gives the box its size.
  */
-function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps) {
+function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange }: ComposerProps) {
   const listening = phase !== "idle";
   const scrollRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // Follow the newest words unless the caret was moved away from the end to edit.
   const followEnd = useRef(true);
 
-  const needsSpace = text && pendingText && !/\s$/.test(text) && !/^\s/.test(pendingText);
-  const pending = text.trim() ? (needsSpace ? ` ${pendingText}` : pendingText) : pendingText.trimStart();
+  // The gray words go where they will land once settled, joined the same way.
+  const pending = joinSpoken(text, pendingText, pendingContinues).slice(text.length);
   const empty = !text && !pending;
 
   useEffect(() => {

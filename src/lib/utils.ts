@@ -31,3 +31,16 @@ export function textDirection(text: string): "rtl" | "ltr" {
   const match = text.match(/[\p{L}]/u);
   return match && /[֐-ࣿיִ-﷿ﹰ-﻿]/u.test(match[0]) ? "rtl" : "ltr";
 }
+
+/**
+ * Put Soniox's words after the box's text. Soniox sends pieces of words that carry their own
+ * spaces ("مش" + "كلة", "Ok" + "ay", "غلط" + "،"), so a piece that `continues` what Soniox
+ * already wrote is joined as is. A space is only added where new speech meets text that
+ * was there before (typed, or from an earlier recording).
+ */
+export function joinSpoken(base: string, piece: string, continues: boolean): string {
+  if (!piece) return base;
+  if (!base.trim()) return base + piece.trimStart();
+  if (continues || /\s$/.test(base) || /^\s/.test(piece)) return base + piece;
+  return `${base} ${piece}`;
+}
