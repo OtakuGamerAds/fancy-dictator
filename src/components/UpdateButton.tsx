@@ -1,9 +1,9 @@
 /**
  * The update button, after T3 Code's sidebar update control (components/sidebar/
  * DesktopUpdateStatusIcon.tsx and desktopUpdate.logic.ts, MIT License — see
- * THIRD_PARTY_LICENSE_T3CODE.txt). Idle it is T3's "Check for updates" refresh button (spinning
- * while it checks, a check mark when you are up to date). Available → click downloads (a ring
- * shows the progress) → downloaded → click restarts into the new version.
+ * THIRD_PARTY_LICENSE_T3CODE.txt). Idle it is T3's "Check for updates" refresh button (it spins
+ * while checking). Available → click downloads (a ring shows the progress) → downloaded → click
+ * restarts into the new version.
  */
 import { CheckIcon, DownloadIcon, RefreshCwIcon, RotateCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -27,9 +27,8 @@ function useUpdateState() {
 
 function tooltip(state: UpdateState): string {
   if (state.status === "checking") return "Checking for updates…";
-  if (state.status === "up-to-date") return `Up to date (${state.currentVersion}). Click to check again.`;
   if (state.status === "error") return `${state.message ?? "Could not check for updates"}. Click to try again.`;
-  if (state.status === "idle") return "Check for updates";
+  if (state.status === "idle" || state.status === "up-to-date") return "Check for updates";
   if (state.status === "available") {
     return state.errorContext === "download"
       ? `Download failed for ${state.availableVersion}. Click to retry.`
@@ -48,19 +47,6 @@ function tooltip(state: UpdateState): string {
 export function UpdateButton() {
   const state = useUpdateState();
   const status = state?.status;
-  // A check you asked for gets a moment of "up to date" feedback, then the plain button again.
-  const [justChecked, setJustChecked] = useState(false);
-  // "requested" → "checking" (the check started) → done: only then is the result this check's.
-  const [request, setRequest] = useState<"none" | "requested" | "checking">("none");
-  useEffect(() => {
-    if (request === "requested" && status === "checking") setRequest("checking");
-    if (request !== "checking" || status === "checking") return;
-    setRequest("none");
-    if (status !== "up-to-date") return;
-    setJustChecked(true);
-    const timer = setTimeout(() => setJustChecked(false), 2000);
-    return () => clearTimeout(timer);
-  }, [request, status]);
 
   // Updates only run in the installed app; from source there is nothing to show.
   if (!state?.enabled) return null;
@@ -68,7 +54,7 @@ export function UpdateButton() {
   const label = tooltip(state);
   const showsUpdate = status === "available" || status === "downloading" || status === "downloaded";
   const interactionDisabled = status === "downloading" || status === "checking";
-  const iconStatus = justChecked ? "checked" : status === "checking" ? "checking" : showsUpdate ? status : "idle";
+  const iconStatus = status === "checking" ? "checking" : showsUpdate ? status : "idle";
   // T3's update button (SidebarUpdatePill.tsx): a plain round button, filled while it shows an
   // update. Not ui/Button, whose svg nudge (-mx-0.5) would push the progress ring off center.
   return (
@@ -88,10 +74,7 @@ export function UpdateButton() {
         if (interactionDisabled) return;
         if (status === "available") void window.api.downloadUpdate();
         else if (status === "downloaded") void window.api.installUpdate();
-        else {
-          setRequest("requested");
-          void window.api.checkForUpdate();
-        }
+        else void window.api.checkForUpdate();
       }}
     >
       <UpdateStatusIcon status={iconStatus} percent={state.downloadPercent} />
@@ -99,18 +82,17 @@ export function UpdateButton() {
   );
 }
 
-/** T3's DesktopUpdateStatusIcon, plus a brief tick after a check that found nothing new. */
+/** T3's DesktopUpdateStatusIcon. */
 function UpdateStatusIcon({
   status,
   percent,
 }: {
-  status: "idle" | "checking" | "checked" | "available" | "downloading" | "downloaded";
+  status: "idle" | "checking" | "available" | "downloading" | "downloaded";
   percent: number | null;
 }) {
   if (status === "available") return <AvailableIcon />;
   if (status === "downloading") return <DownloadingIcon percent={percent} />;
   if (status === "downloaded") return <DownloadedIcon />;
-  if (status === "checked") return <CheckIcon aria-hidden className="size-4 text-success-foreground" />;
   return <RefreshCwIcon aria-hidden className={cn("size-4", status === "checking" && "motion-safe:animate-spin")} />;
 }
 
