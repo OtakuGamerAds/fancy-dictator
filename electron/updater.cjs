@@ -34,7 +34,18 @@ function setState(patch) {
   notify(state);
 }
 
-const errorMessage = (error) => (error instanceof Error ? error.message : String(error));
+/**
+ * A short message for the button's tooltip. electron-updater's errors carry the whole HTTP
+ * exchange (method, URL, headers, HTML body), which is noise to anyone using the app.
+ */
+function errorMessage(error) {
+  const text = error instanceof Error ? error.message : String(error);
+  const status = Number(error?.statusCode ?? text.match(/^\s*(\d{3})\b/)?.[1]);
+  const network = /ENOTFOUND|EAI_AGAIN|ENETUNREACH|ECONNRESET|ECONNREFUSED|ETIMEDOUT|net::ERR_/.test(text);
+  if (network || status >= 500) return "Couldn't reach GitHub right now";
+  if (status === 404) return "No update information was found";
+  return text.split(/\r?\n/)[0].slice(0, 120);
+}
 
 function wireEvents() {
   autoUpdater.on("checking-for-update", () => {
