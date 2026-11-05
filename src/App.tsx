@@ -465,7 +465,7 @@ export function App() {
                 setView("settings");
               }}
             />
-            {historyOpen && phase === "idle" && (
+            {historyOpen && (
               <HistoryPanel
                 key={historyMode}
                 history={history}
@@ -570,6 +570,13 @@ function useSnapshotHooks(s: SnapshotSetters) {
       "3b-recording-medium": (x) => {
         x.setText("مرحبا، بدي اكتب رسالة سريعة لفريق العمل بخصوص التحديث الجاي، وأولاً");
         x.setPendingText(" لازم نراجع");
+      },
+      "3c-recording-list-open": (x) => {
+        x.setHistory(SAMPLE_HISTORY);
+        x.setHistoryOpen(true);
+      },
+      "3d-recording-list-folded": (x) => {
+        x.setHistoryOpen(false);
       },
       "4-recording-long": (x) => {
         x.setStartedAt(Date.now() - 41000);

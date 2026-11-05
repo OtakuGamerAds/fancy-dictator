@@ -271,6 +271,27 @@ function Toolbar({ left, center, right }: { left: React.ReactNode; center: React
 /** Toolbar controls are all 32px, the size of T3 Code's round controls (its update button too). */
 const ROUND = "size-8 rounded-full before:rounded-full sm:size-8";
 
+/** Folds or unfolds the messages under the box. Disabled (T3's not-allowed cursor) when there are none. */
+function HistoryToggle({ historyOpen, historyCount, onToggleHistory }: ComposerProps) {
+  const noMessages = historyCount === 0 && !historyOpen;
+  return (
+    // aria-disabled rather than disabled: a disabled button gets no pointer events, so T3's
+    // "not allowed" cursor (aria-disabled:cursor-not-allowed) would never show.
+    <Button
+      variant="ghost-muted"
+      size="icon"
+      className="rounded-full before:rounded-full"
+      aria-label={historyOpen ? "Hide messages" : noMessages ? "No messages yet" : "Show messages"}
+      title={noMessages ? "No messages yet" : undefined}
+      aria-expanded={historyOpen}
+      aria-disabled={noMessages || undefined}
+      onClick={() => !noMessages && onToggleHistory()}
+    >
+      <ChevronDownIcon className={cn("transition-transform duration-200", historyOpen && "rotate-180")} />
+    </Button>
+  );
+}
+
 /** Hides the window (it keeps running in the tray), like a minimize button in the corner. */
 function HideButton({ onClick, label = "Hide (Esc)" }: { onClick(): void; label?: string }) {
   return (
@@ -280,7 +301,8 @@ function HideButton({ onClick, label = "Hide (Esc)" }: { onClick(): void; label?
   );
 }
 
-function RecordingToolbar({ phase, elapsedMs, levels, onStop, onClose }: ComposerProps) {
+function RecordingToolbar(props: ComposerProps) {
+  const { phase, elapsedMs, levels, onStop, onClose } = props;
   return (
     <Toolbar
       left={
@@ -309,23 +331,19 @@ function RecordingToolbar({ phase, elapsedMs, levels, onStop, onClose }: Compose
         <Waveform levels={levels} />
         </div>
       }
-      right={<HideButton label="Hide (keeps what you said)" onClick={onClose} />}
+      right={
+        <>
+          <HistoryToggle {...props} />
+          <HideButton label="Hide (keeps what you said)" onClick={onClose} />
+        </>
+      }
     />
   );
 }
 
-function IdleToolbar({
-  text,
-  durationMs,
-  historyOpen,
-  historyCount,
-  onMic,
-  onToggleHistory,
-  onClose,
-  onOpenSettings,
-}: ComposerProps) {
+function IdleToolbar(props: ComposerProps) {
+  const { text, durationMs, onMic, onClose, onOpenSettings } = props;
   const hasText = text.trim().length > 0;
-  const noMessages = historyCount === 0 && !historyOpen;
   return (
     <Toolbar
       left={
@@ -349,20 +367,7 @@ function IdleToolbar({
       }
       right={
         <>
-          {/* aria-disabled rather than disabled: a disabled button gets no pointer events, so T3's
-              "not allowed" cursor (aria-disabled:cursor-not-allowed) would never show. */}
-          <Button
-            variant="ghost-muted"
-            size="icon"
-            className="rounded-full before:rounded-full"
-            aria-label={historyOpen ? "Hide messages" : noMessages ? "No messages yet" : "Show messages"}
-            title={noMessages ? "No messages yet" : undefined}
-            aria-expanded={historyOpen}
-            aria-disabled={noMessages || undefined}
-            onClick={() => !noMessages && onToggleHistory()}
-          >
-            <ChevronDownIcon className={cn("transition-transform duration-200", historyOpen && "rotate-180")} />
-          </Button>
+          <HistoryToggle {...props} />
           <HideButton onClick={onClose} />
         </>
       }

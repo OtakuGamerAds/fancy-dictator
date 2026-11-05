@@ -3,6 +3,7 @@ import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
+import { useUndoNotice } from "~/lib/undoNotice";
 import type { HistoryEntry } from "~/lib/types";
 import { cn, formatAgo, formatDuration, textDirection } from "~/lib/utils";
 
@@ -27,6 +28,8 @@ const PAGE = 3;
  */
 export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDelete, onClear }: HistoryPanelProps) {
   const [extra, setExtra] = useState(0);
+  // The notice and its separator only while there is something to undo.
+  const undoActive = useUndoNotice() !== null;
   // The gaps between messages drag the window too, unless the list scrolls: a drag region
   // would swallow the mouse wheel.
   const listRef = useRef<HTMLUListElement>(null);
@@ -60,7 +63,7 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
           </ul>
           <div className="flex items-center justify-center gap-1 pt-1">
             {/* A size container needs a definite width, or it collapses to nothing. */}
-            {showUndo && (
+            {showUndo && undoActive && (
               <>
                 {/* Packed to the right (row-reverse + justify-start), next to the separator. */}
                 <UndoNotice className="w-48 justify-start" />
