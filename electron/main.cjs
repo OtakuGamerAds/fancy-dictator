@@ -80,10 +80,12 @@ function createWindow() {
     maximizable: false,
     minimizable: false,
     fullscreenable: false,
-    skipTaskbar: true,
+    // In the taskbar while open; hidden, a window leaves the taskbar by itself (tray only).
+    skipTaskbar: false,
     alwaysOnTop: true,
     show: false,
     title: "Fancy Dictator",
+    icon: path.join(__dirname, "..", "build", "icon.png"),
     webPreferences: {
       preload: path.join(__dirname, "preload.cjs"),
       contextIsolation: true,

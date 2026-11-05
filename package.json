@@ -55,7 +55,8 @@
     "files": [
       "dist/**",
       "electron/**",
-      "package.json"
+      "package.json",
+      "build/icon.png"
     ],
     "artifactName": "Fancy-Dictator-Setup-${version}.${ext}",
     "win": {
