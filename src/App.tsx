@@ -475,6 +475,7 @@ export function App() {
                 key={historyMode}
                 history={history}
                 mode={historyMode}
+                showUndo={text.length > 0}
                 sessionIds={sessionIds}
                 onCopy={copy}
                 onDelete={(id) => void deleteEntries([id])}
@@ -599,6 +600,12 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setText("");
         x.setDurationMs(0);
         x.setError("No speech detected.");
+      },
+      "5d-cleared": (x) => {
+        x.setError(null);
+        x.setHistoryOpen(false);
+        x.setText("");
+        showUndoNotice({ action: "Cleared", undo: () => {} });
       },
       "6-settings": (x) => {
         x.setError(null);

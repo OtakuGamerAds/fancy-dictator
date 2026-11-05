@@ -2,6 +2,7 @@ import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Button } from "~/components/ui/button";
+import { UndoNotice } from "~/components/UndoNotice";
 import type { HistoryEntry } from "~/lib/types";
 import { cn, formatAgo, formatDuration, textDirection } from "~/lib/utils";
 
@@ -10,6 +11,8 @@ interface HistoryPanelProps {
   /** "session": just the messages cleared since the window opened; "recent": the latest few. */
   mode: "session" | "recent";
   sessionIds: string[];
+  /** Show "Deleted, Ctrl+Z to undo" here (when the box has text, so it cannot show there). */
+  showUndo: boolean;
   onCopy(text: string): Promise<void>;
   onDelete(id: string): void;
   onClear(): void;
@@ -22,7 +25,7 @@ const PAGE = 3;
  * Recent transcriptions under the composer, drawn like your own messages in T3 Code's
  * timeline (TimelineUserMessageRow): end-aligned bg-message bubbles, actions on hover.
  */
-export function HistoryPanel({ history, mode, sessionIds, onCopy, onDelete, onClear }: HistoryPanelProps) {
+export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDelete, onClear }: HistoryPanelProps) {
   const [extra, setExtra] = useState(0);
   // The gaps between messages drag the window too, unless the list scrolls: a drag region
   // would swallow the mouse wheel.
@@ -55,6 +58,14 @@ export function HistoryPanel({ history, mode, sessionIds, onCopy, onDelete, onCl
             ))}
           </ul>
           <div className="flex items-center justify-center gap-1 pt-1">
+            {/* A size container needs a definite width, or it collapses to nothing. */}
+            {showUndo && (
+              <>
+                {/* Packed to the right (row-reverse + justify-start), next to the separator. */}
+                <UndoNotice className="w-48 justify-start" />
+                <span className="text-muted-foreground/60 text-xs">·</span>
+              </>
+            )}
             {remaining > 0 && (
               <>
                 <Button variant="ghost-muted" size="xs" onClick={() => setExtra((n) => n + PAGE)}>

@@ -72,7 +72,7 @@ export function Composer(props: ComposerProps) {
           language picker (T3: the model picker) and the primary button sit inside it, at the end. */}
       <div
         dir="ltr"
-        className="relative mx-2 mt-1.5 mb-2 flex items-end gap-2 rounded-xl border border-(--composer-outline) bg-card py-1.5 ps-3.5 pe-1.5 inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
+        className="relative mx-2 mt-2 mb-2 flex items-end gap-2 rounded-xl border border-(--composer-outline) bg-card py-1.5 ps-3.5 pe-1.5 inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
       >
         <div className="min-w-0 flex-1 py-0.5">
           {errorOnly ? (
@@ -145,6 +145,9 @@ const FIELD_TEXT = "whitespace-pre-wrap wrap-break-word text-sm leading-relaxed"
  */
 function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps) {
   const listening = phase !== "idle";
+  // Right after the box is emptied, "Cleared, Ctrl+Z to undo" stands where the text was.
+  const undoShowing = useUndoNotice() !== null;
+  const undoInBox = !listening && !text && undoShowing;
   const scrollRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
   // Follow the newest words unless the caret was moved away from the end to edit.
@@ -185,7 +188,7 @@ function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps)
                 <AnimatedDots />
               </span>
             ) : (
-              <span dir="ltr" className="text-placeholder">
+              <span dir="ltr" className={cn("text-placeholder", undoInBox && "invisible")}>
                 {PLACEHOLDER}
               </span>
             )
@@ -198,6 +201,12 @@ function ComposerText({ phase, text, pendingText, onTextChange }: ComposerProps)
             </>
           )}
         </div>
+        {undoInBox && (
+          // Above the textarea so its undo button can be clicked; the rest lets clicks reach the box.
+          <div className="pointer-events-none absolute inset-0 z-10 flex items-center justify-center [&_button]:pointer-events-auto">
+            <UndoNotice className="h-auto w-full justify-center text-sm leading-relaxed" />
+          </div>
+        )}
         <textarea
           ref={areaRef}
           value={text}
@@ -256,12 +265,13 @@ function Toolbar({ left, center, right }: { left: React.ReactNode; center: React
   );
 }
 
-const ROUND = "size-7 rounded-full before:rounded-full sm:size-7 [&_svg:not([class*='size-'])]:size-3.5";
+/** Toolbar controls are all 32px, the size of T3 Code's round controls (its update button too). */
+const ROUND = "size-8 rounded-full before:rounded-full sm:size-8";
 
 /** Hides the window (it keeps running in the tray), like a minimize button in the corner. */
 function HideButton({ onClick, label = "Hide (Esc)" }: { onClick(): void; label?: string }) {
   return (
-    <Button variant="ghost-muted" size="icon-sm" aria-label={label} title={label} onClick={onClick}>
+    <Button variant="ghost-muted" size="icon" className="rounded-full before:rounded-full" aria-label={label} title={label} onClick={onClick}>
       <MinusIcon />
     </Button>
   );
@@ -313,23 +323,20 @@ function IdleToolbar({
 }: ComposerProps) {
   const hasText = text.trim().length > 0;
   const noMessages = historyCount === 0 && !historyOpen;
-  // "Deleted, Ctrl+Z to undo" takes the word count's place while it is showing.
-  const undoShowing = useUndoNotice() !== null;
   return (
     <Toolbar
       left={
         <>
-          <Button variant="ghost-muted" size="icon-sm" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
+          <Button variant="ghost-muted" size="icon" className="rounded-full before:rounded-full" aria-label="Settings" title="Settings" onClick={onOpenSettings}>
             <Settings2Icon />
           </Button>
           <UpdateButton />
-          {hasText && !undoShowing && (
+          {hasText && (
             <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[560px]/footer:inline">
               {durationMs > 0 && `${formatDuration(durationMs)} · `}
               {countWords(text)} words
             </span>
           )}
-          <UndoNotice className="ms-1.5 flex-1" />
         </>
       }
       center={
@@ -343,7 +350,8 @@ function IdleToolbar({
               "not allowed" cursor (aria-disabled:cursor-not-allowed) would never show. */}
           <Button
             variant="ghost-muted"
-            size="icon-sm"
+            size="icon"
+            className="rounded-full before:rounded-full"
             aria-label={historyOpen ? "Hide messages" : noMessages ? "No messages yet" : "Show messages"}
             title={noMessages ? "No messages yet" : undefined}
             aria-expanded={historyOpen}
