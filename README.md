@@ -40,7 +40,7 @@ pnpm install
 pnpm dev        # Vite + Electron with hot reload
 pnpm build      # typecheck + build the renderer
 pnpm start      # run the built app
-pnpm dist       # portable .exe in ./release
+pnpm dist       # build the installer into ./release (no publishing)
 pnpm snapshot   # render every view to ./snapshots/*.png
 pnpm probe      # check mic → worklet → Soniox socket (expects a 401 for the fake key)
 ```
