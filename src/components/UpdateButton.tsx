@@ -1,11 +1,11 @@
 /**
  * The update button, after T3 Code's sidebar update control (components/sidebar/
  * DesktopUpdateStatusIcon.tsx and desktopUpdate.logic.ts, MIT License — see
- * THIRD_PARTY_LICENSE_T3CODE.txt): it only appears when there is something to do.
- * Available → click downloads (a ring shows the progress) → downloaded → click restarts
- * into the new version.
+ * THIRD_PARTY_LICENSE_T3CODE.txt). Idle it is T3's "Check for updates" refresh button (spinning
+ * while it checks, a check mark when you are up to date). Available → click downloads (a ring
+ * shows the progress) → downloaded → click restarts into the new version.
  */
-import { CheckIcon, DownloadIcon, RotateCwIcon } from "lucide-react";
+import { CheckIcon, DownloadIcon, RefreshCwIcon, RotateCwIcon } from "lucide-react";
 import { useEffect, useState } from "react";
 
 import { Button } from "~/components/ui/button";
@@ -24,6 +24,10 @@ function useUpdateState() {
 }
 
 function tooltip(state: UpdateState): string {
+  if (state.status === "checking") return "Checking for updates…";
+  if (state.status === "up-to-date") return `Up to date (${state.currentVersion}). Click to check again.`;
+  if (state.status === "error") return `${state.message ?? "Could not check for updates"}. Click to try again.`;
+  if (state.status === "idle") return "Check for updates";
   if (state.status === "available") {
     return state.errorContext === "download"
       ? `Download failed for ${state.availableVersion}. Click to retry.`
@@ -42,22 +46,48 @@ function tooltip(state: UpdateState): string {
 export function UpdateButton() {
   const state = useUpdateState();
   const status = state?.status;
-  if (!state || (status !== "available" && status !== "downloading" && status !== "downloaded")) return null;
+  // A check you asked for gets a moment of "up to date" feedback, then the plain button again.
+  const [justChecked, setJustChecked] = useState(false);
+  // "requested" → "checking" (the check started) → done: only then is the result this check's.
+  const [request, setRequest] = useState<"none" | "requested" | "checking">("none");
+  useEffect(() => {
+    if (request === "requested" && status === "checking") setRequest("checking");
+    if (request !== "checking" || status === "checking") return;
+    setRequest("none");
+    if (status !== "up-to-date") return;
+    setJustChecked(true);
+    const timer = setTimeout(() => setJustChecked(false), 2000);
+    return () => clearTimeout(timer);
+  }, [request, status]);
+
+  // Updates only run in the installed app; from source there is nothing to show.
+  if (!state?.enabled) return null;
 
   const label = tooltip(state);
+  const idle = status === "idle" || status === "up-to-date" || status === "error" || status === "checking";
   return (
     <Button
       variant="ghost-muted"
       size="icon-sm"
       aria-label={label}
       title={label}
-      disabled={status === "downloading"}
-      className="text-foreground"
+      disabled={status === "downloading" || status === "checking"}
+      className={idle ? undefined : "text-foreground"}
       onClick={() => {
         if (status === "available") void window.api.downloadUpdate();
         else if (status === "downloaded") void window.api.installUpdate();
+        else {
+          setRequest("requested");
+          void window.api.checkForUpdate();
+        }
       }}
     >
+      {idle &&
+        (justChecked ? (
+          <CheckIcon className="text-success-foreground" />
+        ) : (
+          <RefreshCwIcon className={status === "checking" ? "animate-spin" : undefined} />
+        ))}
       {status === "available" && <AvailableIcon />}
       {status === "downloading" && <DownloadingIcon percent={state.downloadPercent} />}
       {status === "downloaded" && <DownloadedIcon />}
