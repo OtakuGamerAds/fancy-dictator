@@ -8,7 +8,9 @@
  */
 
 const WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
-export const SONIOX_MODEL = "stt-rt-v5";
+// stt-rt-v6: stronger language switching within a sentence than v5, which Soniox retires on
+// 2026-12-15 (fully compatible; only the model name changes).
+export const SONIOX_MODEL = "stt-rt-v6";
 const SAMPLE_RATE = 16000;
 
 const WORKLET_SOURCE = `
