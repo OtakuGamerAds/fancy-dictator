@@ -34,6 +34,9 @@
   --color-placeholder: var(--placeholder);
   --color-secondary-label: var(--secondary-label);
   --color-message: var(--message-surface);
+  --color-message-action: var(--message-action);
+  --color-message-action-foreground: var(--message-action-foreground);
+  --color-message-action-hover: var(--message-action-hover);
   --color-message-foreground: var(--foreground);
   --color-icon-muted: var(--icon-muted);
   --color-destructive: var(--destructive);
@@ -71,6 +74,10 @@
   --placeholder: var(--muted-foreground);
   /* A user turn in T3 Code's timeline (dark theme). */
   --message-surface: color-mix(in srgb, oklch(0.145 0 0) 92%, #fff);
+  /* T3 Code's primary composer action (its send / submit buttons). */
+  --message-action: var(--primary);
+  --message-action-foreground: var(--primary-foreground);
+  --message-action-hover: color-mix(in srgb, var(--primary) 90%, var(--background));
   --secondary-label: var(--muted-foreground);
   --icon-muted: var(--muted-foreground);
   --accent: rgb(255 255 255 / 4%);

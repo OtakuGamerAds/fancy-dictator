@@ -5,10 +5,11 @@ Copy the text, or send it to your recent messages.
 
 - `Ctrl+Alt+Space` opens the window and starts recording; pressed again it stops the
   recording, or hides the window when nothing is recording.
-- The send button (or `Ctrl+Enter`) turns the box into a message in the history below,
-  like sending in T3 Code. Hiding the window does the same, so it always opens clean.
-- The languages Soniox listens for are picked beside the send button.
-- The first ✕ clears the box (`Ctrl+Z` brings it back); the next one hides the window.
+- **Clear** (in the box, or `Ctrl+Enter`) moves the text into your messages below and empties
+  the box; `Ctrl+Z` brings it back. Hiding the window does the same, so it always opens clean.
+- The languages Soniox listens for are picked beside Clear.
+- The toolbar on top has the mic in the middle; at the right, Copy, updates, settings, the
+  messages arrow and **—** to hide the window.
 - Lives in the tray; right-click the tray icon for Settings or Quit.
 
 ## Install, update, uninstall

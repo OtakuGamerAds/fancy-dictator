@@ -3,10 +3,10 @@ import {
   ChevronDownIcon,
   CopyIcon,
   LoaderCircleIcon,
+  MinusIcon,
   MicIcon,
   Settings2Icon,
   SquareIcon,
-  XIcon,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
@@ -57,18 +57,22 @@ interface ComposerProps {
   onOpenSettings(): void;
 }
 
-/** The one view: a T3-style text box, and a footer with the mic always in the center. */
+/**
+ * The one view: a toolbar on top (mic in the center, window controls at the right, like a
+ * title bar), then the T3-style text box. The history opens below the box.
+ */
 export function Composer(props: ComposerProps) {
   const listening = props.phase !== "idle";
   // An error with nothing else in the box takes the placeholder's place, on the same line.
   const errorOnly = !listening && !props.text && props.error;
   return (
     <div>
+      {listening ? <RecordingToolbar {...props} /> : <IdleToolbar {...props} />}
       {/* The text box: T3's composer surface color on the black window. As in T3, the
-          language picker (T3: the model picker) and the send button sit inside it, at the end. */}
+          language picker (T3: the model picker) and the primary button sit inside it, at the end. */}
       <div
         dir="ltr"
-        className="relative m-2 mb-2.5 flex items-end gap-2 rounded-xl border border-(--composer-outline) bg-card py-1.5 ps-3.5 pe-1.5 inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
+        className="relative mx-2 mt-1.5 mb-2 flex items-end gap-2 rounded-xl border border-(--composer-outline) bg-card py-1.5 ps-3.5 pe-1.5 inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
       >
         <div className="min-w-0 flex-1 py-0.5">
           {errorOnly ? (
@@ -83,28 +87,30 @@ export function Composer(props: ComposerProps) {
           <ClearButton {...props} />
         </div>
       </div>
-      {listening ? <RecordingFooter {...props} /> : <IdleFooter {...props} />}
     </div>
   );
 }
 
+/** T3 Code's labelled primary pill (ComposerPrimaryActions.tsx: messageActionPillClassName). */
+const MESSAGE_ACTION_PILL =
+  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
+
 /**
- * The clear button, like the ✕ in a search field: only there when the box has something.
+ * "Clear", in the place and style of T3's submit button: dimmed while the box is empty.
  * It keeps the text (it moves to the history) and empties the box; Ctrl+Z brings it back.
  */
 function ClearButton({ phase, text, onClear }: ComposerProps) {
-  if (phase !== "recording" && !text.trim()) return null;
+  const canClear = phase === "recording" || text.trim().length > 0;
   return (
-    <Button
-      variant="ghost-muted"
-      size="icon-xs"
-      className="rounded-full before:rounded-full"
-      aria-label="Clear (keeps it in history) · Ctrl+Enter"
-      title="Clear (keeps it in history) · Ctrl+Enter"
+    <button
+      type="button"
+      className={cn(MESSAGE_ACTION_PILL, "h-8 px-3 sm:h-7")}
+      disabled={!canClear}
+      title="Keeps it in your messages and empties the box (Ctrl+Enter)"
       onClick={onClear}
     >
-      <XIcon />
-    </Button>
+      Clear
+    </button>
   );
 }
 
@@ -214,15 +220,15 @@ function AnimatedDots() {
 }
 
 /**
- * The footer: the main control exactly centered, the side columns hold everything else.
+ * The toolbar: the main control exactly centered, the side columns hold everything else.
  *
  * It is a size container, so it never makes the card wider: only the text decides the width.
  * Its contents adapt to the width they get instead (`@min-[…]/footer:` variants): Copy
  * shows its label when there is room and is an icon when there is not.
  */
-function Footer({ left, center, right }: { left: React.ReactNode; center: React.ReactNode; right: React.ReactNode }) {
+function Toolbar({ left, center, right }: { left: React.ReactNode; center: React.ReactNode; right: React.ReactNode }) {
   return (
-    <div className="@container/footer px-2 pb-4">
+    <div className="@container/footer px-2 pt-2">
       <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-3">
         <div className="flex min-w-0 items-center justify-start ps-2">{left}</div>
         <div className="flex items-center justify-center">{center}</div>
@@ -238,17 +244,18 @@ const NARROW_ONLY = "@min-[620px]/footer:hidden";
 
 const ROUND = "size-7 rounded-full before:rounded-full sm:size-7 [&_svg:not([class*='size-'])]:size-3.5";
 
-function CloseButton({ onClick, className, label = "Close" }: { onClick(): void; className?: string; label?: string }) {
+/** Hides the window (it keeps running in the tray), like a minimize button in the corner. */
+function HideButton({ onClick, label = "Hide (Esc)" }: { onClick(): void; label?: string }) {
   return (
-    <Button variant="ghost-muted" size="icon-sm" className={className} aria-label={label} title={label} onClick={onClick}>
-      <XIcon />
+    <Button variant="ghost-muted" size="icon-sm" aria-label={label} title={label} onClick={onClick}>
+      <MinusIcon />
     </Button>
   );
 }
 
-function RecordingFooter({ phase, elapsedMs, levels, onStop, onClose }: ComposerProps) {
+function RecordingToolbar({ phase, elapsedMs, levels, onStop, onClose }: ComposerProps) {
   return (
-    <Footer
+    <Toolbar
       left={
         <span className="flex items-center gap-1.5 text-muted-foreground text-xs tabular-nums">
           <span className="size-2 animate-pulse rounded-full bg-red-500" />
@@ -275,12 +282,12 @@ function RecordingFooter({ phase, elapsedMs, levels, onStop, onClose }: Composer
         <Waveform levels={levels} />
         </div>
       }
-      right={<CloseButton label="Close (keeps what you said)" onClick={onClose} />}
+      right={<HideButton label="Hide (keeps what you said)" onClick={onClose} />}
     />
   );
 }
 
-function IdleFooter({
+function IdleToolbar({
   text,
   durationMs,
   copied,
@@ -297,7 +304,7 @@ function IdleFooter({
   // "Deleted, Ctrl+Z to undo" takes the word count's place while it is showing.
   const undoShowing = useUndoNotice() !== null;
   return (
-    <Footer
+    <Toolbar
       left={
         <>
           {hasText && !undoShowing && (
@@ -351,7 +358,7 @@ function IdleFooter({
           >
             <ChevronDownIcon className={cn("transition-transform duration-200", historyOpen && "rotate-180")} />
           </Button>
-          <CloseButton onClick={onClose} />
+          <HideButton onClick={onClose} />
         </>
       }
     />
