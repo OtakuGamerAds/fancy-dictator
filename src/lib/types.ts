@@ -52,6 +52,7 @@ export interface DesktopApi {
 declare global {
   interface Window {
     api: DesktopApi;
+    __fdSetUpdateState?: (state: UpdateState) => void;
     __fdSnapshot?: {
       views(): string[];
       show(name: string): Promise<number>;

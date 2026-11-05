@@ -597,6 +597,26 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setHistoryOpen(false);
         x.setView("settings");
       },
+      ...Object.fromEntries(
+        (["idle", "available", "downloading", "downloaded"] as const).map((status) => [
+          `9-update-${status}`,
+          (x: SnapshotSetters) => {
+            x.setView("main");
+            x.setText("");
+            // After the main view (and its update button) has mounted.
+            setTimeout(() => window.__fdSetUpdateState?.({
+              enabled: true,
+              status,
+              currentVersion: "0.1.2",
+              availableVersion: "0.1.3",
+              downloadedVersion: status === "downloaded" ? "0.1.3" : null,
+              downloadPercent: status === "downloading" ? 40 : null,
+              message: null,
+              errorContext: null,
+            }), 50);
+          },
+        ]),
+      ),
       "8-main-typed": (x) => {
         x.setView("main");
         x.setText("مرحبا كيفك");
