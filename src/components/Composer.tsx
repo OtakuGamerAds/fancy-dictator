@@ -1,11 +1,22 @@
-import { ChevronDownIcon, CopyIcon, LoaderCircleIcon, MicIcon, MinusIcon, Settings2Icon, SquareIcon } from "lucide-react";
+import {
+  ChevronDownIcon,
+  CopyIcon,
+  LoaderCircleIcon,
+  MicIcon,
+  MinusIcon,
+  MonitorSpeakerIcon,
+  Settings2Icon,
+  SquareIcon,
+} from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
+import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
 import { Waveform } from "~/components/Waveform";
+import type { AudioSource } from "~/lib/soniox";
 import { cn, countWords, formatDuration, joinSpoken, textDirection } from "~/lib/utils";
 
 export type Phase = "idle" | "starting" | "recording" | "stopping";
@@ -27,6 +38,11 @@ interface ComposerProps {
   historyCount: number;
   onTextChange(text: string): void;
   onMic(): void;
+  /** Start listening to the computer's audio instead: someone you are talking to. */
+  onDictateOthers(): void;
+  /** What the recording listens to, switchable while it runs. */
+  source: AudioSource;
+  onSwitchSource(source: AudioSource): void;
   onStop(): void;
   /** Copy the text, keep it in the messages and empty the box (stops a recording first). */
   onCopy(): void;
@@ -83,7 +99,7 @@ const MESSAGE_ACTION_PILL =
  * The empty box is one big talk button. The language picker and the undo notice inside it
  * keep their own clicks (they stop the click from reaching the box).
  */
-function TalkSurface({ error, languages, onMic, onLanguagesChange }: ComposerProps) {
+function TalkSurface({ error, languages, onMic, onDictateOthers, onLanguagesChange }: ComposerProps) {
   return (
     <div
       role="button"
@@ -99,13 +115,32 @@ function TalkSurface({ error, languages, onMic, onLanguagesChange }: ComposerPro
       }}
       className="group/talk flex cursor-pointer flex-col rounded-[inherit] outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      <div className="flex items-center justify-center gap-2.5 px-3.5 pt-3 pb-1">
-        <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs shadow-primary/24 transition-transform group-hover/talk:scale-105">
-          <MicIcon className="size-3.5" />
+      {/* One sentence, centered: "Click to talk, or [dictate others]". The box is the mic; the
+          button in the sentence listens to the computer's audio instead. */}
+      <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 px-3.5 pt-3 pb-1">
+        {/* The mic stays with the sentence; only the button moves down when it does not fit. */}
+        <span className="flex items-center gap-2.5">
+          <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs shadow-primary/24 transition-transform group-hover/talk:scale-105">
+            <MicIcon className="size-3.5" />
+          </span>
+          <span className={cn("text-sm", error ? "text-error-foreground" : "text-placeholder group-hover/talk:text-foreground")}>
+            {error ? `${error} Click to try again, or` : "Click to talk, or"}
+          </span>
         </span>
-        <span className={cn("text-sm", error ? "text-error-foreground" : "text-placeholder group-hover/talk:text-foreground")}>
-          {error ? `${error} Click to try again.` : "Click to talk"}
-        </span>
+        <Button
+          variant="outline"
+          size="xs"
+          className="rounded-full before:rounded-full"
+          title="Listen to the computer's audio: someone you're talking to"
+          onClick={(event) => {
+            event.stopPropagation();
+            onDictateOthers();
+          }}
+          onKeyDown={(event) => event.stopPropagation()}
+        >
+          <MonitorSpeakerIcon />
+          dictate others
+        </Button>
       </div>
       <div className="flex min-h-8 items-center justify-between gap-2 px-1.5 pb-1.5">
         <span onClick={(event) => event.stopPropagation()}>
@@ -152,7 +187,7 @@ function EditRow({ text, languages, onMic, onCopy, onLanguagesChange }: Composer
 }
 
 /** While recording: the timer and the wave, and Stop. */
-function RecordingRow({ phase, elapsedMs, levels, onStop }: ComposerProps) {
+function RecordingRow({ phase, elapsedMs, levels, source, onSwitchSource, onStop }: ComposerProps) {
   return (
     <>
       <span className="flex items-center gap-2 ps-2 text-muted-foreground text-xs tabular-nums">
@@ -160,10 +195,30 @@ function RecordingRow({ phase, elapsedMs, levels, onStop }: ComposerProps) {
         {formatDuration(elapsedMs)}
         <Waveform levels={levels} className="ms-1" />
       </span>
-      <Button variant="outline" size="sm" className="h-8 rounded-full px-3 before:rounded-full sm:h-7" disabled={phase === "stopping"} onClick={onStop}>
-        {phase === "stopping" ? <LoaderCircleIcon className="animate-spin" /> : <SquareIcon className="size-2.5 fill-current" />}
-        Stop
-      </Button>
+      <div className="flex items-center gap-2">
+        {/* Switch between your voice and the computer's audio without stopping (T3's segmented toggle). */}
+        <ToggleGroup
+          aria-label="Listen to"
+          variant="segmented"
+          value={[source]}
+          disabled={phase !== "recording"}
+          onValueChange={(value) => {
+            const next = value[0];
+            if (next === "mic" || next === "computer") onSwitchSource(next);
+          }}
+        >
+          <Toggle aria-label="Your microphone" title="Your microphone" value="mic">
+            <MicIcon className="size-3.5" />
+          </Toggle>
+          <Toggle aria-label="The computer's audio" title="The computer's audio (someone you're talking to)" value="computer">
+            <MonitorSpeakerIcon className="size-3.5" />
+          </Toggle>
+        </ToggleGroup>
+        <Button variant="outline" size="sm" className="h-8 rounded-full px-3 before:rounded-full sm:h-7" disabled={phase === "stopping"} onClick={onStop}>
+          {phase === "stopping" ? <LoaderCircleIcon className="animate-spin" /> : <SquareIcon className="size-2.5 fill-current" />}
+          Stop
+        </Button>
+      </div>
     </>
   );
 }

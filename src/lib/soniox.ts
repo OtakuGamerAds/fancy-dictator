@@ -51,11 +51,16 @@ class PcmCapture extends AudioWorkletProcessor {
 registerProcessor("pcm-capture", PcmCapture);
 `;
 
+/** Where the audio comes from: your microphone, or what the computer is playing (someone you are talking to). */
+export type AudioSource = "mic" | "computer";
+
 export interface SonioxSession {
   /** Stop listening, wait for Soniox to finalize the last words, and return the full text. */
   stop(): Promise<string>;
   /** Drop everything immediately. */
   cancel(): void;
+  /** Listen to another source from now on, in the same recording (Soniox keeps going). */
+  setSource(source: AudioSource): Promise<void>;
 }
 
 export interface StartOptions {
@@ -63,6 +68,8 @@ export interface StartOptions {
   /** The Soniox model id (defaults to SONIOX_MODEL). */
   model?: string;
   languageHints: string[];
+  /** Where to listen first (defaults to the microphone). */
+  source?: AudioSource;
   deviceId?: string;
   onText(finalText: string, pendingText: string): void;
   onLevel?(level: number): void;
@@ -84,7 +91,34 @@ async function openMicrophone(deviceId?: string): Promise<MediaStream> {
   return navigator.mediaDevices.getUserMedia({ audio: base });
 }
 
-export function describeStartError(error: unknown): string {
+/**
+ * What the computer is playing, through Windows' loopback capture (electron/main.cjs answers
+ * the request with it). Chromium's voice processing is for microphones and is turned off. The
+ * screen's video comes with it and is dropped at once.
+ */
+async function openComputerAudio(): Promise<MediaStream> {
+  const stream = await navigator.mediaDevices.getDisplayMedia({
+    video: true,
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+  });
+  for (const track of stream.getVideoTracks()) {
+    track.stop();
+    stream.removeTrack(track);
+  }
+  if (stream.getAudioTracks().length === 0) throw new Error("Could not capture the computer's audio.");
+  return stream;
+}
+
+function openSource(source: AudioSource, deviceId?: string): Promise<MediaStream> {
+  return source === "computer" ? openComputerAudio() : openMicrophone(deviceId);
+}
+
+function stopTracks(stream: MediaStream) {
+  for (const track of stream.getTracks()) track.stop();
+}
+
+export function describeStartError(error: unknown, source: AudioSource = "mic"): string {
+  if (source === "computer" && error instanceof DOMException) return "Could not capture the computer's audio.";
   if (error instanceof DOMException) {
     if (error.name === "NotAllowedError") return "Microphone access is blocked. Allow it in Windows Settings → Privacy → Microphone.";
     if (error.name === "NotFoundError") return "No microphone found.";
@@ -94,7 +128,7 @@ export function describeStartError(error: unknown): string {
 }
 
 export async function startSoniox(options: StartOptions): Promise<SonioxSession> {
-  const stream = await openMicrophone(options.deviceId);
+  let stream = await openSource(options.source ?? "mic", options.deviceId);
   const context = new AudioContext({ sampleRate: SAMPLE_RATE });
   const moduleUrl = URL.createObjectURL(new Blob([WORKLET_SOURCE], { type: "application/javascript" }));
   try {
@@ -102,8 +136,13 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   } finally {
     URL.revokeObjectURL(moduleUrl);
   }
-  const source = context.createMediaStreamSource(stream);
-  const capture = new AudioWorkletNode(context, "pcm-capture");
+  let source = context.createMediaStreamSource(stream);
+  // One channel in: the computer's (stereo) audio is mixed down, as Soniox gets mono.
+  const capture = new AudioWorkletNode(context, "pcm-capture", {
+    channelCount: 1,
+    channelCountMode: "explicit",
+    channelInterpretation: "speakers",
+  });
   // Keep the node pulled by the graph without playing anything.
   const mute = context.createGain();
   mute.gain.value = 0;
@@ -204,7 +243,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     source.disconnect();
     capture.disconnect();
     mute.disconnect();
-    for (const track of stream.getTracks()) track.stop();
+    stopTracks(stream);
     void context.close();
   };
 
@@ -238,6 +277,21 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
         ws.close(1000);
       } catch {}
       resolveFinished();
+    },
+    async setSource(next) {
+      if (ended) return;
+      const nextStream = await openSource(next, options.deviceId);
+      if (ended || audioClosed) {
+        stopTracks(nextStream); // stopped while the new source was opening
+        return;
+      }
+      // Join the new source before leaving the old one, so no audio is lost in between.
+      const nextNode = context.createMediaStreamSource(nextStream);
+      nextNode.connect(capture);
+      source.disconnect();
+      stopTracks(stream);
+      stream = nextStream;
+      source = nextNode;
     },
   };
 }

@@ -6,6 +6,8 @@ Copy the text, or send it to your recent messages.
 - `Ctrl+Alt+Space` opens the window and starts recording; pressed again it stops the
   recording, or hides the window when nothing is recording.
 - The empty box is the talk button: click anywhere in it to start the mic.
+- **dictate others** listens to what the computer is playing instead (the person you're on a
+  call with). While recording, the mic / computer switch next to **Stop** changes it live.
 - **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
   the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
   so it always opens clean.

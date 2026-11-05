@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Composer, type Phase } from "~/components/Composer";
 import { HistoryPanel } from "~/components/HistoryPanel";
 import { SettingsView } from "~/components/SettingsView";
-import { describeStartError, type SonioxSession, startSoniox } from "~/lib/soniox";
+import { type AudioSource, describeStartError, type SonioxSession, startSoniox } from "~/lib/soniox";
 import type { HistoryEntry, Settings } from "~/lib/types";
 import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestAction } from "~/lib/undoNotice";
 import { joinSpoken } from "~/lib/utils";
@@ -184,9 +184,12 @@ export function App() {
 
   // ── Recording ──────────────────────────────────────────────────────────
 
+  // What the recording listens to: your microphone, or the computer's audio ("Dictate others").
+  const [source, setSource] = useState<AudioSource>("mic");
+
   /** Start listening. New words are appended to the text box unless `fresh` empties it first. */
   const startRecording = useCallback(
-    async (fresh = false) => {
+    async (fresh = false, from: AudioSource = "mic") => {
       if (phaseRef.current !== "idle") return;
       const current = latest.current.settings;
       if (!current) return;
@@ -197,6 +200,7 @@ export function App() {
       }
       if (fresh) clearText();
       setPhase("starting");
+      setSource(from);
       setView("main");
       setError(null);
       appendedLength.current = 0;
@@ -217,6 +221,7 @@ export function App() {
           apiKey: current.sonioxApiKey,
           model,
           languageHints: current.languages,
+          source: from,
           deviceId: current.micDeviceId || undefined,
           onText: (final, pending) => {
             appendSpoken(final.slice(appendedLength.current));
@@ -241,12 +246,25 @@ export function App() {
         sessionRef.current = session;
         setPhase("recording");
       } catch (startError) {
-        setError(describeStartError(startError));
+        setError(describeStartError(startError, from));
         setPhase("idle");
       }
     },
     [latest],
   );
+
+  /** Switch what the recording listens to, without stopping it. */
+  const switchSource = async (next: AudioSource) => {
+    const session = sessionRef.current;
+    if (!session || next === source) return;
+    const previous = source;
+    setSource(next);
+    try {
+      await session.setSource(next);
+    } catch {
+      setSource(previous); // could not open it: keep listening to what it was
+    }
+  };
 
   const stopping = useRef<Promise<{ text: string; durationMs: number } | null> | null>(null);
 
@@ -483,6 +501,9 @@ export function App() {
                 writeText(value);
               }}
               onMic={() => void startRecording()}
+              onDictateOthers={() => void startRecording(false, "computer")}
+              source={source}
+              onSwitchSource={(next) => void switchSource(next)}
               onStop={() => void stopRecording()}
               // Copy, keep it in the messages, and start fresh: talk → Copy → paste anywhere.
               onCopy={() => void sendBox({ showInHistory: true, undoable: true, copy: true })}
@@ -685,20 +706,43 @@ function useSnapshotHooks(s: SnapshotSetters) {
       probe: async () => {
         const events: string[] = [];
         let levelMessages = 0;
+        // Audio chunks and the loudest level heard on each source, switched mid-recording.
+        let stage: "mic" | "computer" | "mic-again" = "mic";
+        const heard = { mic: { chunks: 0, peak: 0 }, computer: { chunks: 0, peak: 0 }, "mic-again": { chunks: 0, peak: 0 } };
+        const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
         try {
           const session = await startSoniox({
             apiKey: "invalid-key-probe",
             languageHints: ["ar", "en"],
             onText: (f, p) => events.push(`text:${f}|${p}`),
-            onLevel: () => levelMessages++,
+            onLevel: (level) => {
+              levelMessages++;
+              heard[stage].peak = Math.max(heard[stage].peak, level);
+            },
+            onAudio: () => heard[stage].chunks++,
             onError: (m) => events.push(`error:${m}`),
           });
-          await new Promise((r) => setTimeout(r, 2500));
+          await wait(1000);
+          await session.setSource("computer");
+          stage = "computer";
+          // A short, quiet tone through the speakers, which the computer's audio should carry.
+          const speakers = new AudioContext();
+          const tone = speakers.createOscillator();
+          const gain = speakers.createGain();
+          gain.gain.value = 0.03;
+          tone.connect(gain).connect(speakers.destination);
+          tone.start();
+          await wait(1000);
+          tone.stop();
+          void speakers.close();
+          await session.setSource("mic");
+          stage = "mic-again";
+          await wait(800);
           session.cancel();
         } catch (e) {
           events.push(`start-failed:${describeStartError(e)}`);
         }
-        return { events, levelMessages };
+        return { events, levelMessages, heard };
       },
       views: () => Object.keys(scenes),
       show: async (name) => {

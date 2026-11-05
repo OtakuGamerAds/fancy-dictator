@@ -8,6 +8,7 @@
 const {
   app,
   BrowserWindow,
+  desktopCapturer,
   Menu,
   Tray,
   clipboard,
@@ -502,6 +503,16 @@ if (!SNAPSHOT && !app.requestSingleInstanceLock()) {
       callback(permission === "media" || permission === "clipboard-sanitized-write");
     });
     session.defaultSession.setPermissionCheckHandler((_wc, permission) => permission === "media");
+    // "Dictate others": the page asks for the screen and its audio; it gets what the computer
+    // is playing (Windows loopback). The screen's video is required by Chromium and dropped.
+    session.defaultSession.setDisplayMediaRequestHandler(async (_request, callback) => {
+      try {
+        const [screenSource] = await desktopCapturer.getSources({ types: ["screen"] });
+        callback(screenSource ? { video: screenSource, audio: "loopback" } : {});
+      } catch {
+        callback({});
+      }
+    });
     registerIpc();
     serveAudio();
     createWindow();
