@@ -1188,9 +1188,12 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setHistory([SAMPLE_CONVERSATION, ...SAMPLE_HISTORY]);
         x.setHistoryOpen(true);
       },
-      // Short turns in a saved conversation stay on one line.
+      // Short turns in a saved conversation stay on one line; a long one folds on its own.
       "5l-short-turns": (x) => {
-        const turns = SAMPLE_TURNS.slice(4).map(({ speaker, text }) => ({ speaker, text }));
+        const turns = [
+          { speaker: "computer:1", text: "He averaged the 2 numbers at the far end that are less than 10% of my spend, and said that's the price for the whole thing, so we went with it and moved on to the next point." },
+          ...SAMPLE_TURNS.slice(4).map(({ speaker, text }) => ({ speaker, text })),
+        ];
         x.setHistory([{ id: "short", text: formatConversation(turns), turns, createdAt: Date.now(), durationMs: 4000 }]);
         x.setHistoryOpen(true);
       },

@@ -1,7 +1,13 @@
 import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ConversationTurn, FOLDED_TEXT_CLASS_NAME, FOLDED_TEXT_FADE, speakerColors } from "~/components/ConversationTurn";
+import {
+  ConversationTurn,
+  FOLDED_TEXT_CLASS_NAME,
+  FOLDED_TEXT_FADE,
+  ShowMoreButton,
+  speakerColors,
+} from "~/components/ConversationTurn";
 import { EditableText } from "~/components/editableText";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { formatConversation, speakerName, speakerNumbers, speakerText, type Turn } from "~/lib/dialogue";
@@ -25,8 +31,6 @@ interface HistoryPanelProps {
 
 /** The list shows the latest session; each "Show more" adds this many older ones. */
 const PAGE = 3;
-/** A folded conversation shows its first few turns, three lines each. */
-const FOLDED_TURNS = 3;
 
 /**
  * Recent transcriptions under the composer, drawn like your own messages in T3 Code's
@@ -117,7 +121,6 @@ function HistoryMessage({
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
-  const turnsRef = useRef<HTMLDivElement>(null);
   const turns = entry.turns?.length ? entry.turns : null;
   const numbers = turns && speakerNumbers(turns);
   const copyText = (text: string) => void onCopy(text).then(() => setCopied(true));
@@ -128,16 +131,11 @@ function HistoryMessage({
     onEdit({ ...entry, turns: next, text: formatConversation(next) });
   };
 
+  // A single message folds to 3 lines (a conversation's turns fold each on its own).
   useLayoutEffect(() => {
-    const el = textRef.current ?? turnsRef.current;
+    const el = textRef.current;
     if (!el) return;
-    const clamped = (node: HTMLElement) => node.scrollHeight > node.clientHeight + 1;
-    const measure = () =>
-      setOverflows(
-        turns
-          ? turns.length > FOLDED_TURNS || [...el.querySelectorAll<HTMLElement>("[data-turn-text]")].some(clamped)
-          : clamped(el),
-      );
+    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
@@ -166,21 +164,15 @@ function HistoryMessage({
     </div>
   ) : null;
   const showMore = (overflows || expanded) && (
-    <button
-      type="button"
-      className="mt-1 cursor-pointer font-medium text-muted-foreground text-xs hover:text-foreground hover:underline"
-      onClick={() => setExpanded((v) => !v)}
-    >
-      {expanded ? "Show less" : "Show more"}
-    </button>
+    <ShowMoreButton expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
   );
 
   return (
     <li className="group flex flex-col items-end">
       {turns ? (
         // A conversation: its recording on its own (as T3 shows an audio-only message), then each
-        // turn as T3 shows a thread with a guest. Folded, the first few turns, 3 lines each.
-        <div ref={turnsRef} className="flex w-full flex-col items-end gap-3">
+        // turn as T3 shows a thread with a guest, each folded to 3 lines with its own "Show more".
+        <div className="flex w-full flex-col items-end gap-3">
           {audio && (
             <div
               dir={textDirection(turns.map((turn) => turn.text).join(" "))}
@@ -189,17 +181,15 @@ function HistoryMessage({
               {audio}
             </div>
           )}
-          {(expanded ? turns : turns.slice(0, FOLDED_TURNS)).map((turn, index) => (
+          {turns.map((turn, index) => (
             <ConversationTurn
               key={index}
               turn={turn}
               number={numbers?.get(turn.speaker) ?? 1}
-              clamp={!expanded}
+              foldable
               onEdit={(text) => editTurn(index, text)}
-              onFocus={() => setExpanded(true)}
             />
           ))}
-          {showMore && <div className="-mt-2 pe-1">{showMore}</div>}
         </div>
       ) : (
         <div

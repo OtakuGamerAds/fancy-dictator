@@ -27,6 +27,19 @@ export const FOLDED_TEXT_CLASS_NAME = "max-h-[3lh] overflow-hidden";
 const FADE_MASK = "linear-gradient(to bottom, black calc(100% - 1lh), transparent)";
 export const FOLDED_TEXT_FADE = { WebkitMaskImage: FADE_MASK, maskImage: FADE_MASK };
 
+/** "Show more" / "Show less" at the end of a folded message, for that message alone. */
+export function ShowMoreButton({ expanded, onToggle }: { expanded: boolean; onToggle: () => void }) {
+  return (
+    <button
+      type="button"
+      className="mt-1 cursor-pointer font-medium text-muted-foreground text-xs hover:text-foreground hover:underline"
+      onClick={onToggle}
+    >
+      {expanded ? "Show less" : "Show more"}
+    </button>
+  );
+}
+
 export function speakerColors(number: number) {
   return number <= 1 ? FIRST_SPEAKER : SPEAKER_COLORS[(number - 2) % SPEAKER_COLORS.length]!;
 }
@@ -40,7 +53,7 @@ export function ConversationTurn({
   turn,
   number,
   pending = "",
-  clamp = false,
+  foldable = false,
   onEdit,
   onLiveEdit,
   onFocus,
@@ -49,7 +62,8 @@ export function ConversationTurn({
   /** The speaker's number (1 for whoever spoke first). */
   number: number;
   pending?: string;
-  clamp?: boolean;
+  /** Folded to 3 lines when longer, with its own "Show more" (a saved message). */
+  foldable?: boolean;
   /** Its words can be edited in place: given when editing finishes (a saved message)… */
   onEdit?: (text: string) => void;
   /** …or with every keystroke (a conversation being recorded). */
@@ -59,13 +73,20 @@ export function ConversationTurn({
   // The space before the faint words stays between the words, not at the isolated edge.
   const lead = /^\s*/.exec(pending)?.[0] ?? "";
   const colors = speakerColors(number);
-  // Folded and longer than it shows: its last line fades.
+  // Folded and longer than it shows: its last line fades, and "Show more" opens it.
+  const [expanded, setExpanded] = useState(false);
+  const folded = foldable && !expanded;
   const textRef = useRef<HTMLParagraphElement>(null);
   const [cut, setCut] = useState(false);
   useLayoutEffect(() => {
     const element = textRef.current;
-    setCut(clamp && !!element && element.scrollHeight > element.clientHeight + 1);
-  }, [clamp, turn.text]);
+    if (!element || !folded) return setCut(false);
+    const measure = () => setCut(element.scrollHeight > element.clientHeight + 1);
+    measure();
+    const observer = new ResizeObserver(measure);
+    observer.observe(element);
+    return () => observer.disconnect();
+  }, [folded, turn.text]);
   return (
     // Full width, so the bubble's 80% is of the list, not of its own text.
     <div className="flex w-full flex-col items-end gap-1" data-speaker={number}>
@@ -80,17 +101,26 @@ export function ConversationTurn({
           ref={textRef}
           data-turn-text
           data-selectable
-          className={cn("whitespace-pre-wrap wrap-break-word", clamp && FOLDED_TEXT_CLASS_NAME)}
+          className={cn("whitespace-pre-wrap wrap-break-word", folded && FOLDED_TEXT_CLASS_NAME)}
           style={cut ? FOLDED_TEXT_FADE : undefined}
         >
           {(onEdit || onLiveEdit) && turn.text ? (
-            <EditableText text={turn.text} onCommit={onEdit} onInput={onLiveEdit} onFocus={onFocus} />
+            <EditableText
+              text={turn.text}
+              onCommit={onEdit}
+              onInput={onLiveEdit}
+              onFocus={() => {
+                setExpanded(true); // edited whole
+                onFocus?.();
+              }}
+            />
           ) : (
             turn.text
           )}
           {lead}
           <bdi className="text-muted-foreground/70">{pending.slice(lead.length)}</bdi>
         </p>
+        {(cut || expanded) && <ShowMoreButton expanded={expanded} onToggle={() => setExpanded((v) => !v)} />}
       </div>
     </div>
   );
