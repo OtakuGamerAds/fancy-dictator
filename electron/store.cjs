@@ -79,12 +79,12 @@ function getHistory() {
   return Array.isArray(history) ? history : [];
 }
 
-/** Add an entry at the top; an entry with the same id (a continued dictation) replaces it. */
-/** The page sends entries back with `audioClips` on them; that is worked out when read, not stored. */
-function stored({ audioClips: _audioClips, ...entry }) {
+/** The page sends entries back with their audio listed on them; that is worked out when read, not stored. */
+function stored({ audioClips: _audioClips, audioParts: _audioParts, ...entry }) {
   return entry;
 }
 
+/** Add an entry at the top; an entry with the same id (a continued dictation) replaces it. */
 function addHistory(entry) {
   const others = getHistory().filter((item) => item.id !== entry.id);
   const history = [stored(entry), ...others].slice(0, MAX_HISTORY);

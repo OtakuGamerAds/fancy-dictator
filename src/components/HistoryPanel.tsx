@@ -97,6 +97,22 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
 const BUBBLE_CHIP_CLASS_NAME =
   "[&_[data-slot=context-chip]]:[--context-chip-ink:var(--context-chip-message,var(--context-chip-accent))]";
 
+const SOURCE_NAME = { mic: "Microphone", computer: "Computer audio" } as const;
+
+/**
+ * "Recording", or "Recording 2" when "Keep dictating" added more. A conversation keeps each
+ * side apart: "Microphone", "Computer audio" (numbered the same way).
+ */
+function clipName(entry: HistoryEntry, clip: number): string {
+  const parts = entry.audioParts ?? [];
+  const part = parts[clip];
+  const recordings = new Set(parts.map((p) => p.recording)).size || (entry.audioClips ?? 0);
+  const recording = part?.recording ?? clip + 1;
+  const number = recordings > 1 ? ` ${recording}` : "";
+  const sources = new Set(parts.map((p) => p.source).filter(Boolean));
+  return part?.source && sources.size > 1 ? `${SOURCE_NAME[part.source]}${number}` : `Recording${number}`;
+}
+
 function HistoryMessage({
   entry,
   onCopy,
@@ -144,7 +160,7 @@ function HistoryMessage({
       {Array.from({ length: entry.audioClips }, (_, clip) => (
         <InlineAudioPreview
           key={clip}
-          name={entry.audioClips === 1 ? "Recording" : `Recording ${clip + 1}`}
+          name={clipName(entry, clip)}
           audioId={entry.id}
           clip={clip}
           variant="chip"

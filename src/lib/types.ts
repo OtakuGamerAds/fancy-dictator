@@ -19,8 +19,13 @@ export interface HistoryEntry {
   durationMs: number;
   /** A conversation (you and the computer's audio): its turns; `text` is it written out. */
   turns?: Turn[];
-  /** How many recordings of the message are saved (set by the main process, electron/audio.cjs). */
+  /** How many audio clips of the message are saved (set by the main process, electron/audio.cjs). */
   audioClips?: number;
+  /**
+   * Each clip's recording (1, 2, … as "Keep dictating" adds them) and source; null for clips
+   * saved before 0.1.14, which hold every source in one.
+   */
+  audioParts?: { recording: number; source: "mic" | "computer" | null }[];
 }
 
 /** Mirrors electron/updater.cjs (after T3 Code's DesktopUpdateState). */
@@ -48,8 +53,8 @@ export interface DesktopApi {
   addHistory(entry: HistoryEntry): Promise<HistoryEntry[]>;
   clearHistory(): Promise<HistoryEntry[]>;
   replaceHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]>;
-  /** Save one recording's 16 kHz 16-bit PCM as the message's next audio clip. */
-  addAudioClip(id: string, webm: ArrayBuffer): Promise<boolean>;
+  /** Save one recording's audio, a WebM clip per source, as the message's next recording. */
+  addAudioClips(id: string, clips: { source: "mic" | "computer"; webm: ArrayBuffer }[]): Promise<boolean>;
   /** Erase the audio of deleted messages (any that are back in the history are kept). */
   discardAudio(ids: string[]): Promise<void>;
   copy(text: string): Promise<void>;

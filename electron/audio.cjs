@@ -1,17 +1,19 @@
 /**
- * The voice behind each message. Every recording into a message is its own clip ("Keep
- * dictating" adds the next one), kept in userData/audio/<message id>.<clip number>.webm: Opus
- * at 48 kHz, recorded beside what is sent to Soniox (src/lib/clipRecorder.ts). Clips saved by
- * 0.1.12 and before are .pcm, the 16 kHz audio sent to Soniox, and are served as WAV. Clips
- * play from fd-audio://audio/<message id>/<clip number> (see main.cjs).
+ * The voice behind each message. Every recording into a message ("Keep dictating" adds the
+ * next one) keeps a clip per source it heard, in userData/audio/
+ * <message id>.<recording number>.<mic|computer>.webm: Opus at 48 kHz, recorded beside what is
+ * sent to Soniox (src/lib/clipRecorder.ts). Older clips hold every source in one:
+ * <id>.<n>.webm (0.1.13), or .pcm, the 16 kHz audio sent to Soniox, served as WAV (0.1.12 and
+ * before). Clips play from fd-audio://audio/<message id>/<clip position> (see main.cjs).
  */
 const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
 const SAMPLE_RATE = 16000;
-const ID = /^[\w-]{1,64}$/; // message ids hold no dots, so "<id>.<clip>.webm" splits cleanly
-const CLIP = /^(\d+)\.(pcm|webm)$/;
+const ID = /^[\w-]{1,64}$/; // message ids hold no dots, so "<id>.<n>.mic.webm" splits cleanly
+const CLIP = /^(\d+)(?:\.(mic|computer))?\.(pcm|webm)$/;
+const SOURCES = ["mic", "computer"];
 /** WebM files start with the EBML magic number. */
 const isWebm = (bytes) => bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
 
@@ -27,30 +29,41 @@ function names() {
   }
 }
 
-/** A message's clips, in recording order: their number and file name. */
+/** A message's clips in recording order (the microphone first): number, source and file name. */
 function clipsOf(id) {
   if (typeof id !== "string" || !ID.test(id)) return [];
   const prefix = `${id}.`;
+  const order = (source) => (source ? SOURCES.indexOf(source) : -1);
   return names()
     .filter((name) => name.startsWith(prefix) && CLIP.test(name.slice(prefix.length)))
-    .map((name) => ({ number: Number(CLIP.exec(name.slice(prefix.length))[1]), name }))
-    .sort((a, b) => a.number - b.number);
+    .map((name) => {
+      const [, number, source] = CLIP.exec(name.slice(prefix.length));
+      return { number: Number(number), source: source ?? null, name };
+    })
+    .sort((a, b) => a.number - b.number || order(a.source) - order(b.source));
 }
 
-/** How many clips a message has. */
-function count(id) {
-  return clipsOf(id).length;
+/** A message's clips as the page lists them: which recording (1, 2, …) and which source. */
+function parts(id) {
+  const numbers = [];
+  return clipsOf(id).map((clip) => {
+    if (!numbers.includes(clip.number)) numbers.push(clip.number);
+    return { recording: numbers.length, source: clip.source };
+  });
 }
 
-/** Save one recording (WebM bytes) as the message's next clip. */
-function addClip(id, data) {
-  if (typeof id !== "string" || !ID.test(id) || !data || !data.byteLength) return false;
-  const bytes = Buffer.from(data);
-  if (!isWebm(bytes)) return false;
+/** Save one recording's clips ({ source, webm } each) as the message's next recording. */
+function addRecording(id, clips) {
+  if (typeof id !== "string" || !ID.test(id) || !Array.isArray(clips)) return false;
+  const valid = clips
+    .filter((clip) => SOURCES.includes(clip?.source) && clip.webm?.byteLength)
+    .map((clip) => ({ source: clip.source, bytes: Buffer.from(clip.webm) }))
+    .filter((clip) => isWebm(clip.bytes));
+  if (!valid.length) return false;
   const existing = clipsOf(id);
   const next = existing.length ? existing[existing.length - 1].number + 1 : 0;
   fs.mkdirSync(dir(), { recursive: true });
-  fs.writeFileSync(path.join(dir(), `${id}.${next}.webm`), bytes);
+  for (const clip of valid) fs.writeFileSync(path.join(dir(), `${id}.${next}.${clip.source}.webm`), clip.bytes);
   return true;
 }
 
@@ -120,4 +133,4 @@ function sample(seconds = 7) {
   return { bytes: new Uint8Array(wav(pcm)), type: "audio/wav" };
 }
 
-module.exports = { addClip, count, get, remove, prune, sample };
+module.exports = { addRecording, parts, get, remove, prune, sample };

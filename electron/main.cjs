@@ -359,8 +359,12 @@ function registerIpc() {
     applyLoginItem();
     return { settings, hotkeyError };
   });
-  // Every list of messages says how many audio clips each one has saved.
-  const withAudio = (history) => history.map((entry) => ({ ...entry, audioClips: audio.count(entry.id) }));
+  // Every list of messages says which audio clips each one has saved.
+  const withAudio = (history) =>
+    history.map((entry) => {
+      const parts = audio.parts(entry.id);
+      return { ...entry, audioClips: parts.length, audioParts: parts };
+    });
   ipcMain.handle("history:get", () => withAudio(store.getHistory()));
   ipcMain.handle("history:add", (_e, entry) => {
     const before = store.getHistory();
@@ -371,7 +375,7 @@ function registerIpc() {
   });
   ipcMain.handle("history:clear", () => withAudio(store.clearHistory()));
   ipcMain.handle("history:replace", (_e, entries) => withAudio(store.replaceHistory(entries)));
-  ipcMain.handle("audio:add-clip", (_e, id, pcm) => audio.addClip(id, pcm));
+  ipcMain.handle("audio:add-clips", (_e, id, clips) => audio.addRecording(id, clips));
   // Deleted messages can no longer be brought back: erase their audio, unless one was restored.
   ipcMain.handle("audio:discard", (_e, ids) => {
     const history = store.getHistory();

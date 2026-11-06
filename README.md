@@ -19,7 +19,8 @@ Copy the text, or send it to your recent messages.
   being said stays whole and theirs comes after it. Without headphones the mic hears the call
   too; a turn from the mic that is mostly words the call just played is dropped as echo.
   **Copy** copies the conversation ("Speaker 1: … / Speaker 2: …"); its arrow copies one
-  speaker only. The saved message keeps one clip with all the voices.
+  speaker only. The saved message keeps each side's audio as its own clip ("Microphone", "Computer
+  audio"), both starting when the recording did, so they line up.
 - **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
   the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
   so it always opens clean.
@@ -72,8 +73,8 @@ pnpm probe      # check mic → worklet → Soniox socket (expects a 401 for the
 | Stack, theme tokens, UI primitives (`src/components/ui`), composer metrics, undo notice | [T3 Code](https://github.com/pingdotgg/t3code), MIT — see `THIRD_PARTY_LICENSE_T3CODE.txt` |
 | Soniox real-time session settings (endpoint detection) | live-caption-sermons |
 
-Settings, history and the messages' audio (`audio/`, 48 kHz Opus, about 1 MB a minute, recorded
-beside what is sent to Soniox so it sounds as recorded;
+Settings, history and the messages' audio (`audio/`, 48 kHz Opus, about 1 MB a minute per
+source, recorded beside what is sent to Soniox so it sounds as recorded;
 erased with its message once `Ctrl+Z` can no longer bring it back) are stored in
 `%APPDATA%/fancy-dictator`. The Soniox key is
 encrypted with Windows' DPAPI through Electron `safeStorage`.
