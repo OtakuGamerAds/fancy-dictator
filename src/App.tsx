@@ -1078,8 +1078,15 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await wait(300);
 
   // 1. Conversation from the empty box; they cut in while you are still talking.
+  const mics = watchMicrophones();
   await click('[title^="Listen to you and the computer"]');
   steps.opened = Object.keys(sockets).sort().join("+");
+  // The microphone unplugged while recording: another is opened, the stream goes on.
+  const micStreams = mics.streams.length;
+  for (const track of mics.streams.at(-1)?.getAudioTracks() ?? []) track.dispatchEvent(new Event("ended"));
+  await wait(1000);
+  steps.liveReopened = mics.streams.length > micStreams && !sockets.mic?.ended;
+  mics.restore();
   await say("mic", "Hey, did", " you");
   await say("computer", "", "Sorry");
   steps.interrupt = box();
@@ -1184,6 +1191,18 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   return steps;
 }
 
+/** The microphone streams opened from now on (until `restore`), to unplug them in the probe. */
+function watchMicrophones() {
+  const streams: MediaStream[] = [];
+  const original = navigator.mediaDevices.getUserMedia.bind(navigator.mediaDevices);
+  navigator.mediaDevices.getUserMedia = async (constraints) => {
+    const stream = await original(constraints);
+    streams.push(stream);
+    return stream;
+  };
+  return { streams, restore: () => (navigator.mediaDevices.getUserMedia = original) };
+}
+
 /**
  * `pnpm probe`: Replay records both sources for a few seconds (the probe's own settings), and a
  * part of it is cut into one clip per source, which must decode to the length asked for.
@@ -1191,9 +1210,20 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
 async function probeReplay() {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
   await window.api.saveSettings({ replayMinutes: 5 });
+  const mics = watchMicrophones();
   const buffer = await ReplayBuffer.start();
   const began = Date.now();
-  await wait(4000);
+  await wait(1500);
+  // The microphone unplugged: a new one is opened and the recording goes on.
+  const opened = mics.streams.length;
+  for (const track of mics.streams.at(-1)?.getAudioTracks() ?? []) track.dispatchEvent(new Event("ended"));
+  await wait(1200);
+  const reopenedAfterUnplug = mics.streams.length > opened;
+  // One plugged in: the microphone is opened again (following the default).
+  navigator.mediaDevices.dispatchEvent(new Event("devicechange"));
+  await wait(1300);
+  const reopenedAfterPlug = mics.streams.length > opened + 1;
+  mics.restore();
   await buffer.flush();
   const segments = await window.api.listReplay();
   buffer.stop();
@@ -1232,6 +1262,8 @@ async function probeReplay() {
     },
   ]);
   return {
+    reopenedAfterUnplug,
+    reopenedAfterPlug,
     turns: formatConversation(turns),
     pieces: segments.map((s) => ({ source: s.source, ms: s.end - s.start, levels: s.levels.length })),
     asked: (to - from) / 1000,

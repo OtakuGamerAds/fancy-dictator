@@ -167,6 +167,37 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   mute.connect(context.destination);
   options.onStream?.(stream);
 
+  // A microphone unplugged (by accident, often): the recording carries on with whatever one is
+  // there, and moves back to it when it is plugged in again (the system default follows it).
+  let currentSource: AudioSource = options.source ?? "mic";
+  let reopening = false;
+  let retryTimer = 0;
+  let changeTimer = 0;
+  const watch = (watched: MediaStream) => {
+    for (const track of watched.getAudioTracks()) track.addEventListener("ended", () => void reopen(), { once: true });
+  };
+  const reopen = async () => {
+    if (ended || audioClosed || reopening) return;
+    reopening = true;
+    clearTimeout(retryTimer);
+    try {
+      await switchTo(currentSource);
+    } catch {
+      retryTimer = window.setTimeout(() => void reopen(), 3000); // none there yet: try again
+    } finally {
+      reopening = false;
+    }
+  };
+  const onDeviceChange = () => {
+    clearTimeout(changeTimer);
+    changeTimer = window.setTimeout(() => {
+      const lost = stream.getAudioTracks().every((track) => track.readyState === "ended");
+      if (currentSource === "mic" || lost) void reopen();
+    }, 600);
+  };
+  watch(stream);
+  navigator.mediaDevices.addEventListener("devicechange", onDeviceChange);
+
   let finalText = "";
   let pendingText = "";
   let ended = false;
@@ -261,9 +292,30 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     sendOrQueue(event.data.pcm);
   };
 
+  /** Listen to `next` from now on: the new source joins before the old one leaves, so nothing is lost. */
+  const switchTo = async (next: AudioSource) => {
+    const nextStream = await openSource(next, options.deviceId);
+    if (ended || audioClosed) {
+      stopTracks(nextStream); // stopped while the new source was opening
+      return;
+    }
+    const nextNode = context.createMediaStreamSource(nextStream);
+    nextNode.connect(capture);
+    source.disconnect();
+    stopTracks(stream);
+    stream = nextStream;
+    source = nextNode;
+    currentSource = next;
+    watch(nextStream);
+    options.onStream?.(nextStream);
+  };
+
   const closeAudio = () => {
     if (audioClosed) return;
     audioClosed = true;
+    clearTimeout(retryTimer);
+    clearTimeout(changeTimer);
+    navigator.mediaDevices.removeEventListener("devicechange", onDeviceChange);
     capture.port.onmessage = null;
     source.disconnect();
     capture.disconnect();
@@ -304,19 +356,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     },
     async setSource(next) {
       if (ended) return;
-      const nextStream = await openSource(next, options.deviceId);
-      if (ended || audioClosed) {
-        stopTracks(nextStream); // stopped while the new source was opening
-        return;
-      }
-      // Join the new source before leaving the old one, so no audio is lost in between.
-      const nextNode = context.createMediaStreamSource(nextStream);
-      nextNode.connect(capture);
-      source.disconnect();
-      stopTracks(stream);
-      stream = nextStream;
-      source = nextNode;
-      options.onStream?.(nextStream);
+      await switchTo(next);
     },
   };
 }

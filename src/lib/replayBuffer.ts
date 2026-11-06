@@ -10,6 +10,8 @@ const SEGMENT_MS = 30_000;
 const LEVEL_MS = 250;
 const MIME_TYPE = "audio/webm;codecs=opus";
 const BITS_PER_SECOND = 128_000;
+const RETRY_MS = 3000;
+const SOURCES: AudioSource[] = ["mic", "computer"];
 
 interface Piece {
   recorder: MediaRecorder;
@@ -30,7 +32,10 @@ class Tape {
   constructor(
     private source: AudioSource,
     private stream: MediaStream,
+    onLost: () => void,
   ) {
+    // Unplugged: the tape is over, and another takes its place.
+    for (const track of stream.getAudioTracks()) track.addEventListener("ended", onLost, { once: true });
     this.analyser.fftSize = this.samples.length;
     this.context.createMediaStreamSource(stream).connect(this.analyser);
     this.piece = this.begin();
@@ -98,23 +103,75 @@ class Tape {
 }
 
 export class ReplayBuffer {
-  private constructor(private tapes: Tape[]) {}
+  private tapes = new Map<AudioSource, Tape>();
+  private opening = new Set<AudioSource>();
+  private retries = new Map<AudioSource, number>();
+  private changeTimer = 0;
+  private stopped = false;
 
-  /** Start recording both sources (either alone, if the other cannot be opened). */
-  static async start(deviceId?: string): Promise<ReplayBuffer> {
-    const sources: AudioSource[] = ["mic", "computer"];
-    const streams = await Promise.allSettled(sources.map((source) => openSource(source, deviceId)));
-    const tapes = streams.flatMap((result, i) => (result.status === "fulfilled" ? [new Tape(sources[i]!, result.value)] : []));
-    if (tapes.length === 0) throw new Error("Replay could not open the microphone or the computer's audio.");
-    return new ReplayBuffer(tapes);
+  private constructor(private deviceId?: string) {
+    navigator.mediaDevices.addEventListener("devicechange", this.onDeviceChange);
   }
+
+  /**
+   * Start recording both sources. One that cannot be opened (no microphone plugged in) is
+   * tried again until it can.
+   */
+  static async start(deviceId?: string): Promise<ReplayBuffer> {
+    const buffer = new ReplayBuffer(deviceId);
+    await Promise.all(SOURCES.map((source) => buffer.open(source)));
+    return buffer;
+  }
+
+  /**
+   * (Re)open a source. A new tape starts before the old one stops, so a microphone plugged back
+   * in (or a new default one) takes over without a gap.
+   */
+  private async open(source: AudioSource) {
+    if (this.stopped || this.opening.has(source)) return;
+    this.opening.add(source);
+    clearTimeout(this.retries.get(source));
+    try {
+      const stream = await openSource(source, this.deviceId);
+      if (this.stopped) {
+        for (const track of stream.getTracks()) track.stop();
+        return;
+      }
+      const tape: Tape = new Tape(source, stream, () => {
+        if (this.tapes.get(source) !== tape) return;
+        this.tapes.delete(source);
+        tape.stop();
+        void this.open(source);
+      });
+      this.tapes.get(source)?.stop();
+      this.tapes.set(source, tape);
+    } catch {
+      // Not there (yet): try again in a moment, or as soon as a device is plugged in.
+      this.retries.set(source, window.setTimeout(() => void this.open(source), RETRY_MS));
+    } finally {
+      this.opening.delete(source);
+    }
+  }
+
+  /** A device plugged in or out: the microphone follows (the computer's audio only if it was lost). */
+  private onDeviceChange = () => {
+    clearTimeout(this.changeTimer);
+    this.changeTimer = window.setTimeout(() => {
+      for (const source of SOURCES) if (source === "mic" || !this.tapes.has(source)) void this.open(source);
+    }, 600);
+  };
 
   /** Make everything recorded until now available to play and transcribe. */
   flush(): Promise<void> {
-    return Promise.all(this.tapes.map((tape) => tape.flush())).then(() => {});
+    return Promise.all([...this.tapes.values()].map((tape) => tape.flush())).then(() => {});
   }
 
   stop() {
-    for (const tape of this.tapes) tape.stop();
+    this.stopped = true;
+    navigator.mediaDevices.removeEventListener("devicechange", this.onDeviceChange);
+    clearTimeout(this.changeTimer);
+    for (const timer of this.retries.values()) clearTimeout(timer);
+    for (const tape of this.tapes.values()) tape.stop();
+    this.tapes.clear();
   }
 }
