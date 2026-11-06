@@ -18,12 +18,13 @@ Copy the text, or send it to your recent messages.
   Turns follow the order they started and are never split: if someone cuts in, the sentence
   being said stays whole and theirs comes after it. Without headphones the mic hears the call
   too; a turn from the mic that is mostly words the call just played is dropped as echo.
-  **Copy** copies the conversation ("Speaker 1: … / Speaker 2: …"); its arrow copies one
-  speaker only. The saved message keeps each side's audio as its own clip ("Microphone", "Computer
+  Its copy icon copies the conversation ("Speaker 1: … / Speaker 2: …") or one speaker only. The saved message keeps each side's audio as its own clip ("Microphone", "Computer
   audio"), both starting when the recording did, so they line up.
-- **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
-  the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
-  so it always opens clean.
+- **Stop** (or `Ctrl+Enter`, `Esc`, or the shortcut again) ends the session: it is saved and
+  moves below the box, which is empty for the next one. Below the box is one session at a
+  time, the latest; **Show more** brings older ones. Hiding the window ends a session too.
+- Copy a session with the copy icon on it (a conversation's offers one speaker only too).
+  Click into any bubble's text to edit it; it is saved when you click away.
 - Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"
   adds the next): press ▶ on one to listen again, and click along it to jump there.
 - The languages Soniox listens for are picked at the bottom-left of the box.

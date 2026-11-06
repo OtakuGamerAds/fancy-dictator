@@ -1,3 +1,4 @@
+import { EDITABLE_TEXT_CLASS_NAME, editableText } from "~/components/editableText";
 import { guestBubbleClassName } from "~/components/guestMessageStyle";
 import { speakerName, type Turn } from "~/lib/dialogue";
 import { cn, textDirection } from "~/lib/utils";
@@ -29,12 +30,17 @@ export function ConversationTurn({
   number,
   pending = "",
   clamp = false,
+  onEdit,
+  onFocus,
 }: {
   turn: Turn;
   /** The speaker's number (1 for whoever spoke first). */
   number: number;
   pending?: string;
   clamp?: boolean;
+  /** Its words can be edited in place (a saved message). */
+  onEdit?: (text: string) => void;
+  onFocus?: () => void;
 }) {
   // The space before the faint words stays between the words, not at the isolated edge.
   const lead = /^\s*/.exec(pending)?.[0] ?? "";
@@ -48,11 +54,23 @@ export function ConversationTurn({
         data-no-drag
         className={cn("min-w-0 max-w-[80%] rounded-2xl p-3 text-message-foreground text-sm leading-relaxed", colors.surface)}
       >
-        <p data-turn-text data-selectable className={cn("whitespace-pre-wrap wrap-break-word", clamp && "line-clamp-3")}>
-          {turn.text}
-          {lead}
-          <bdi className="text-muted-foreground/70">{pending.slice(lead.length)}</bdi>
-        </p>
+        {onEdit ? (
+          <p
+            key={turn.text}
+            data-turn-text
+            data-selectable
+            className={cn("whitespace-pre-wrap wrap-break-word", EDITABLE_TEXT_CLASS_NAME, clamp && "line-clamp-3")}
+            {...editableText(turn.text, onEdit, onFocus)}
+          >
+            {turn.text}
+          </p>
+        ) : (
+          <p data-turn-text data-selectable className={cn("whitespace-pre-wrap wrap-break-word", clamp && "line-clamp-3")}>
+            {turn.text}
+            {lead}
+            <bdi className="text-muted-foreground/70">{pending.slice(lead.length)}</bdi>
+          </p>
+        )}
       </div>
     </div>
   );

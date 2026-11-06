@@ -5,7 +5,6 @@ import { HistoryPanel } from "~/components/HistoryPanel";
 import { SettingsView } from "~/components/SettingsView";
 import { RecordingAudio } from "~/lib/clipRecorder";
 import {
-  type CopyWhich,
   Dialogue,
   type DialogueBlock,
   type DialogueTurn,
@@ -13,7 +12,6 @@ import {
   newTurnId,
   type PendingRun,
   speakerName,
-  speakerText,
   type Turn,
   voiceOf,
 } from "~/lib/dialogue";
@@ -75,8 +73,8 @@ export function App() {
   const [historyOpen, setHistoryOpen] = useState(false);
   // Messages cleared from the box since the window opened. Right after clearing, the list opens
   // showing just these; opening it with the arrow shows the latest few as usual.
-  const [sessionIds, setSessionIds] = useState<string[]>([]);
-  const [historyMode, setHistoryMode] = useState<"session" | "recent">("recent");
+  // Bumped when a session moves below the box: the list starts over at the latest one.
+  const [historyKey, setHistoryKey] = useState(0);
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
 
   // The text box. Each dictation is appended to it; it is one history entry until cleared.
@@ -247,14 +245,9 @@ export function App() {
 
   /**
    * Turn what is in the box into a message in the history and start clean, like sending in
-   * T3. Used by Ctrl+Enter and whenever the window is hidden. A recording is finished first.
+   * T3. Used when a session ends and whenever the window is hidden. A recording is finished first.
    */
-  const sendBox = async ({
-    showInHistory = false,
-    undoable = false,
-    copy = false,
-    which = "all" as CopyWhich,
-  } = {}) => {
+  const sendBox = async ({ showInHistory = false } = {}) => {
     let value = textRef.current;
     let duration = latest.current.durationMs;
     if (phaseRef.current === "recording" || phaseRef.current === "stopping") {
@@ -268,22 +261,9 @@ export function App() {
       const entry = boxEntry(trimmed, duration);
       await saveEntry(entry);
       if (showInHistory) {
-        // Open the list on just what was cleared this session, so it is seen landing there.
-        setSessionIds((ids) => (ids.includes(entry.id) ? ids : [...ids, entry.id]));
-        setHistoryMode("session");
+        // The session moves below the box, where it is seen landing.
+        setHistoryKey((key) => key + 1);
         setHistoryOpen(true);
-      }
-      if (copy) await window.api.copy(which === "all" || !entry.turns ? entry.text : speakerText(entry.turns, which));
-      if (undoable) {
-        showUndoNotice({
-          action: copy ? "Copied" : "Cleared",
-          undo: () => {
-            if (entry.turns) writeTurns(entry.turns.map((turn) => ({ ...turn, id: newTurnId() })));
-            else writeText(entry.text);
-            setDurationMs(entry.durationMs);
-            entryId.current = entry.id;
-          },
-        });
       }
     }
     clearText();
@@ -342,9 +322,10 @@ export function App() {
   };
 
   const failRecording = (message: string) => {
-    setError(message);
     cancelLanes();
     setPhase("idle");
+    // What was heard before it failed moves below like any session; the error stays in the box.
+    void sendBox({ showInHistory: true }).then(() => setError(message));
   };
 
   /**
@@ -505,6 +486,9 @@ export function App() {
     }
   };
 
+  /** Stop: the session is saved and moves below the box, which is empty for the next one. */
+  const finishSession = () => sendBox({ showInHistory: true });
+
   const stopping = useRef<Promise<{ text: string; durationMs: number } | null> | null>(null);
 
   /** Stop listening and save. Resolves to the box's text and duration afterwards. */
@@ -586,6 +570,12 @@ export function App() {
     await window.api.copy(value);
   }, []);
 
+  /** A message's words changed in its bubble: saved in place (it keeps its place in the list). */
+  const editEntry = async (entry: HistoryEntry) => {
+    const saved = await window.api.getHistory();
+    setHistory(await window.api.replaceHistory(saved.map((old) => (old.id === entry.id ? entry : old))));
+  };
+
   // ── Events from the main process and the keyboard ─────────────────────
 
   useEffect(() => {
@@ -593,8 +583,6 @@ export function App() {
     // However the window is hidden, the box is saved as a message and the next open is clean.
     const offHidden = window.api.onHidden(() => {
       void sendBox();
-      // The next open is a fresh session.
-      setSessionIds([]);
       setHistoryOpen(false);
     });
     // First press opens and starts recording; the next one stops it, or hides when idle.
@@ -602,7 +590,7 @@ export function App() {
       const p = phaseRef.current;
       if (opened) {
         if (p === "idle") void startRecording(true);
-      } else if (p === "recording") void stopRecording();
+      } else if (p === "recording") void finishSession();
       else if (p === "starting") cancelRecording();
       else if (p === "idle") hide();
     });
@@ -625,21 +613,23 @@ export function App() {
         // As in T3: right after an action Ctrl+Z undoes it, even inside a text field. Once
         // another key is pressed or the text is edited, Ctrl+Z is the field's own undo again.
         const target = event.target as HTMLElement | null;
-        const editing = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement;
-        if (editing && (target as HTMLTextAreaElement).value && !undoClaimsShortcut()) return;
+        const field = target instanceof HTMLTextAreaElement || target instanceof HTMLInputElement;
+        if (field && (target as HTMLTextAreaElement).value && !undoClaimsShortcut()) return;
+        if (target?.isContentEditable && !undoClaimsShortcut()) return; // a bubble being edited
         if (undoLatestAction()) event.preventDefault();
         return;
       }
       if (!["Control", "Meta", "Shift", "Alt"].includes(event.key)) releaseUndoShortcut();
-      // Ctrl+Enter sends the box to the history and clears it.
+      // Ctrl+Enter ends the session, like Stop.
       if ((event.ctrlKey || event.metaKey) && event.key === "Enter" && latest.current.view === "main") {
         event.preventDefault();
-        void sendBox({ showInHistory: true, undoable: true, copy: true });
+        void finishSession();
         return;
       }
       if (event.key !== "Escape") return;
       const { view: current, historyOpen: open } = latest.current;
-      if (phaseRef.current !== "idle") cancelRecording();
+      if (phaseRef.current === "recording") void finishSession();
+      else if (phaseRef.current !== "idle") cancelRecording();
       else if (current === "settings") setView("main");
       else if (open) setHistoryOpen(false);
       else hide();
@@ -767,9 +757,8 @@ export function App() {
               onConversation={() => void startRecording(false, "both")}
               mode={mode}
               onSwitchMode={(next) => void switchMode(next)}
-              onStop={() => void stopRecording()}
-              // Copy, keep it in the messages, and start fresh: talk → Copy → paste anywhere.
-              onCopy={(which) => void sendBox({ showInHistory: true, undoable: true, copy: true, which })}
+              // Stop ends the session: it is saved and moves below, and the box is ready for the next.
+              onStop={() => void finishSession()}
               languages={settings?.languages ?? []}
               onLanguagesChange={(languages) => {
                 if (!settings) return;
@@ -777,8 +766,8 @@ export function App() {
                 void window.api.saveSettings({ languages });
               }}
               onToggleHistory={() => {
-                // Opened by hand, the list shows the latest messages.
-                if (!historyOpen) setHistoryMode("recent");
+                // Opened by hand, the list starts at the latest session.
+                if (!historyOpen) setHistoryKey((key) => key + 1);
                 setHistoryOpen(!historyOpen);
               }}
               // Closes the window; hiding saves the box and finishes a recording (see onHidden).
@@ -790,12 +779,11 @@ export function App() {
             />
             {historyOpen && (
               <HistoryPanel
-                key={historyMode}
+                key={historyKey}
                 history={history}
-                mode={historyMode}
                 showUndo={text.length > 0}
-                sessionIds={sessionIds}
                 onCopy={copy}
+                onEdit={(entry) => void editEntry(entry)}
                 onDelete={(id) => void deleteEntries([id])}
                 onClear={() => void deleteEntries(history.map((entry) => entry.id))}
               />

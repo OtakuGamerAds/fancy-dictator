@@ -525,12 +525,12 @@ async function runSnapshots() {
       console.log("[snapshot] 7-model-picker.png");
     }
   }
-  // A conversation's Copy menu, open.
+  // A saved conversation's Copy menu, open.
   if (wanted("5h-conversation-copy-menu")) {
-    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5f-conversation-done")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5g-conversation-history")`);
     await new Promise((r) => setTimeout(r, 500));
     const copyOptions = await win.webContents.executeJavaScript(`(() => {
-      const el = document.querySelector('[aria-label="Copy options"]');
+      const el = document.querySelector('[data-speaker]')?.closest("li")?.querySelector('[aria-label="Copy"]');
       if (!el) return null;
       const r = el.getBoundingClientRect();
       return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };

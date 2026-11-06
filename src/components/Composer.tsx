@@ -1,7 +1,6 @@
 import {
   MicOffIcon,
   ChevronDownIcon,
-  CopyIcon,
   LoaderCircleIcon,
   MicIcon,
   MinusIcon,
@@ -12,15 +11,14 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ConversationTurn, speakerColors } from "~/components/ConversationTurn";
+import { ConversationTurn } from "~/components/ConversationTurn";
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
-import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
 import { Waveform } from "~/components/Waveform";
-import { type CopyWhich, type DialogueBlock, speakerName, speakerNumbers } from "~/lib/dialogue";
+import { type DialogueBlock, speakerNumbers } from "~/lib/dialogue";
 import type { ListenMode } from "~/lib/soniox";
 import { cn, countWords, formatDuration, joinSpoken, textDirection } from "~/lib/utils";
 
@@ -53,7 +51,6 @@ interface ComposerProps {
   onSwitchMode(mode: ListenMode): void;
   onStop(): void;
   /** Copy the text (or one side of a conversation), keep it in the messages and empty the box. */
-  onCopy(which: CopyWhich): void;
   languages: string[];
   onLanguagesChange(languages: string[]): void;
   onToggleHistory(): void;
@@ -98,10 +95,6 @@ export function Composer(props: ComposerProps) {
     </div>
   );
 }
-
-/** T3 Code's labelled primary pill (ComposerPrimaryActions.tsx: messageActionPillClassName). */
-const MESSAGE_ACTION_PILL =
-  "inline-flex shrink-0 cursor-pointer items-center justify-center gap-1.5 whitespace-nowrap rounded-full bg-message-action font-medium text-base text-message-action-foreground shadow-xs shadow-message-action/24 outline-none hover:bg-message-action-hover focus-visible:ring-2 focus-visible:ring-inset focus-visible:ring-ring focus-visible:ring-offset-1 focus-visible:ring-offset-background disabled:pointer-events-none disabled:opacity-64 disabled:shadow-none sm:text-sm";
 
 /**
  * The empty box is one big talk button. The language picker and the undo notice inside it
@@ -165,88 +158,22 @@ function TalkSurface({ error, languages, onMic, onConversation, onLanguagesChang
   );
 }
 
-/** Under the text: languages, a mic to add more, and Copy, the main action. */
-function EditRow({ text, dialogue, languages, onMic, onCopy, onLanguagesChange }: ComposerProps) {
+/** Under the text: languages, and a mic to add more. */
+function EditRow({ languages, onMic, onLanguagesChange }: ComposerProps) {
   return (
     <>
       <LanguagePicker value={languages} onChange={onLanguagesChange} />
-      <div className="flex items-center gap-1">
-        <Button
-          variant="ghost-muted"
-          size="icon-sm"
-          className="rounded-full before:rounded-full"
-          aria-label="Keep dictating"
-          title="Keep dictating"
-          onClick={onMic}
-        >
-          <MicIcon />
-        </Button>
-        {dialogue ? (
-          <CopyConversation dialogue={dialogue} onCopy={onCopy} />
-        ) : (
-          <button
-            type="button"
-            className={cn(MESSAGE_ACTION_PILL, "h-8 px-3 sm:h-7")}
-            disabled={!text.trim()}
-            title="Copy, keep it in your messages, and start fresh (Ctrl+Enter)"
-            onClick={() => onCopy("all")}
-          >
-            <CopyIcon className="size-3.5" />
-            Copy
-          </button>
-        )}
-      </div>
-    </>
-  );
-}
-
-/**
- * Copy for a conversation: the pill copies all of it; its chevron (T3's split primary button,
- * ComposerPrimaryActions' "Implement" menu) offers one speaker only.
- */
-function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onCopy(which: CopyWhich): void }) {
-  // The speakers with settled words, numbered as Copy writes them.
-  const speakers = [...speakerNumbers(dialogue.map((turn) => ({ ...turn, pending: "" }))).values()];
-  return (
-    <div className="flex items-center">
-      <button
-        type="button"
-        className={cn(MESSAGE_ACTION_PILL, "h-8 rounded-r-none px-3 sm:h-7")}
-        disabled={speakers.length === 0}
-        title="Copy the conversation, keep it in your messages, and start fresh (Ctrl+Enter)"
-        onClick={() => onCopy("all")}
+      <Button
+        variant="ghost-muted"
+        size="icon-sm"
+        className="rounded-full before:rounded-full"
+        aria-label="Keep dictating"
+        title="Keep dictating"
+        onClick={onMic}
       >
-        <CopyIcon className="size-3.5" />
-        Copy
-      </button>
-      <Menu>
-        <MenuTrigger
-          render={
-            <button
-              type="button"
-              className={cn(MESSAGE_ACTION_PILL, "h-8 rounded-l-none border-l border-message-action-foreground/20 px-2 sm:h-7")}
-              aria-label="Copy options"
-            />
-          }
-        >
-          <ChevronDownIcon className="size-3.5" />
-        </MenuTrigger>
-        <MenuPopup align="end">
-          {/* Plain items, like T3's "Implement in a new thread". */}
-          <MenuItem onClick={() => onCopy("all")}>
-            <span aria-hidden className="w-3 shrink-0" />
-            Copy conversation
-          </MenuItem>
-          {speakers.map((number) => (
-            <MenuItem key={number} onClick={() => onCopy(number)}>
-              {/* The speaker's bubble color, as a legend swatch (T3's telemetry legend). */}
-              <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerColors(number).hue)} />
-              Copy {speakerName(number)} only
-            </MenuItem>
-          ))}
-        </MenuPopup>
-      </Menu>
-    </div>
+        <MicIcon />
+      </Button>
+    </>
   );
 }
 

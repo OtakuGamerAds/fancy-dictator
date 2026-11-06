@@ -1,8 +1,10 @@
 import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ConversationTurn } from "~/components/ConversationTurn";
-import { speakerNumbers } from "~/lib/dialogue";
+import { ConversationTurn, speakerColors } from "~/components/ConversationTurn";
+import { EDITABLE_TEXT_CLASS_NAME, editableText } from "~/components/editableText";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
+import { formatConversation, speakerName, speakerNumbers, speakerText, type Turn } from "~/lib/dialogue";
 import { InlineAudioPreview } from "~/components/files/InlineAudioPreview";
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
@@ -12,17 +14,16 @@ import { cn, formatAgo, formatDuration, textDirection } from "~/lib/utils";
 
 interface HistoryPanelProps {
   history: HistoryEntry[];
-  /** "session": just the messages cleared since the window opened; "recent": the latest few. */
-  mode: "session" | "recent";
-  sessionIds: string[];
   /** Show "Deleted, Ctrl+Z to undo" here (when the box has text, so it cannot show there). */
   showUndo: boolean;
   onCopy(text: string): Promise<void>;
+  /** A message's words were edited in its bubble. */
+  onEdit(entry: HistoryEntry): void;
   onDelete(id: string): void;
   onClear(): void;
 }
 
-/** Opened by hand, the list shows this many; each "Show more" adds this many older ones. */
+/** The list shows the latest session; each "Show more" adds this many older ones. */
 const PAGE = 3;
 /** A folded conversation shows its first few turns, three lines each. */
 const FOLDED_TURNS = 3;
@@ -31,11 +32,12 @@ const FOLDED_TURNS = 3;
  * Recent transcriptions under the composer, drawn like your own messages in T3 Code's
  * timeline (TimelineUserMessageRow): end-aligned bg-message bubbles, actions on hover.
  */
-export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDelete, onClear }: HistoryPanelProps) {
+export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onClear }: HistoryPanelProps) {
   const [extra, setExtra] = useState(0);
   // The notice and its separator only while there is something to undo.
   const undoActive = useUndoNotice() !== null;
-  const base = mode === "session" ? history.filter((e) => sessionIds.includes(e.id)) : history.slice(0, PAGE);
+  // One session at a time: the latest, until older ones are asked for.
+  const base = history.slice(0, 1);
   const rest = history.filter((e) => !base.includes(e));
   const shown = new Set([...base, ...rest.slice(0, extra)]);
   const visible = history.filter((e) => shown.has(e)); // newest first, as stored
@@ -49,7 +51,7 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
         <>
           <ul className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2">
             {visible.map((entry) => (
-              <HistoryMessage key={entry.id} entry={entry} onCopy={onCopy} onDelete={onDelete} />
+              <HistoryMessage key={entry.id} entry={entry} onCopy={onCopy} onEdit={onEdit} onDelete={onDelete} />
             ))}
           </ul>
           <div className="flex items-center justify-center gap-1 pt-1">
@@ -102,10 +104,12 @@ function clipName(entry: HistoryEntry, clip: number): string {
 function HistoryMessage({
   entry,
   onCopy,
+  onEdit,
   onDelete,
 }: {
   entry: HistoryEntry;
   onCopy(text: string): Promise<void>;
+  onEdit(entry: HistoryEntry): void;
   onDelete(id: string): void;
 }) {
   const [copied, setCopied] = useState(false);
@@ -116,6 +120,13 @@ function HistoryMessage({
   const turnsRef = useRef<HTMLDivElement>(null);
   const turns = entry.turns?.length ? entry.turns : null;
   const numbers = turns && speakerNumbers(turns);
+  const copyText = (text: string) => void onCopy(text).then(() => setCopied(true));
+  // A turn edited: the written-out conversation (what Copy takes) follows the turns.
+  const editTurn = (index: number, text: string) => {
+    if (!turns) return;
+    const next: Turn[] = turns.map((turn, i) => (i === index ? { ...turn, text } : turn));
+    onEdit({ ...entry, turns: next, text: formatConversation(next) });
+  };
 
   useLayoutEffect(() => {
     const el = textRef.current ?? turnsRef.current;
@@ -179,7 +190,14 @@ function HistoryMessage({
             </div>
           )}
           {(expanded ? turns : turns.slice(0, FOLDED_TURNS)).map((turn, index) => (
-            <ConversationTurn key={index} turn={turn} number={numbers?.get(turn.speaker) ?? 1} clamp={!expanded} />
+            <ConversationTurn
+              key={index}
+              turn={turn}
+              number={numbers?.get(turn.speaker) ?? 1}
+              clamp={!expanded}
+              onEdit={(text) => editTurn(index, text)}
+              onFocus={() => setExpanded(true)}
+            />
           ))}
           {showMore && <div className="-mt-2 pe-1">{showMore}</div>}
         </div>
@@ -195,9 +213,11 @@ function HistoryMessage({
           {audio && <div className="mb-2">{audio}</div>}
           {/* The clamp is on the text itself, not the padded bubble, so no half line peeks out. */}
           <p
+            key={entry.text}
             ref={textRef}
             data-selectable
-            className={cn("whitespace-pre-wrap wrap-break-word", !expanded && "line-clamp-3")}
+            className={cn("whitespace-pre-wrap wrap-break-word", EDITABLE_TEXT_CLASS_NAME, !expanded && "line-clamp-3")}
+            {...editableText(entry.text, (text) => onEdit({ ...entry, text }), () => setExpanded(true))}
           >
             {entry.text}
           </p>
@@ -205,16 +225,32 @@ function HistoryMessage({
         </div>
       )}
       <div className="mt-1 flex h-6 items-center gap-0.5 pe-1 text-muted-foreground text-xs">
-        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100">
-          <Button
-            variant="ghost-muted"
-            size="icon-xs"
-            aria-label="Copy"
-            title="Copy"
-            onClick={() => void onCopy(entry.text).then(() => setCopied(true))}
-          >
-            {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
-          </Button>
+        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100 has-data-popup-open:opacity-100">
+          {turns && numbers ? (
+            // A conversation: all of it, or one speaker's words (T3's menu).
+            <Menu>
+              <MenuTrigger render={<Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" />}>
+                {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
+              </MenuTrigger>
+              <MenuPopup align="end">
+                <MenuItem onClick={() => copyText(entry.text)}>
+                  <span aria-hidden className="w-3 shrink-0" />
+                  Copy conversation
+                </MenuItem>
+                {[...numbers.values()].map((number) => (
+                  <MenuItem key={number} onClick={() => copyText(speakerText(turns, number))}>
+                    {/* The speaker's bubble color, as a legend swatch (T3's telemetry legend). */}
+                    <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerColors(number).hue)} />
+                    Copy {speakerName(number)} only
+                  </MenuItem>
+                ))}
+              </MenuPopup>
+            </Menu>
+          ) : (
+            <Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" onClick={() => copyText(entry.text)}>
+              {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
+            </Button>
+          )}
           <Button
             variant="ghost-destructive"
             size="icon-xs"
