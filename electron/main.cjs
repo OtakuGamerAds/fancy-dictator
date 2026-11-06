@@ -555,6 +555,26 @@ async function runSnapshots() {
       console.log(`[snapshot] Esc on the Copy menu: menu ${menuOpen ? "still open" : "closed"}, window ${win.isVisible() ? "still shown" : "hidden"}`);
     }
   }
+  // The session picker under the list, open.
+  if (wanted("5m-session-picker")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
+    await new Promise((r) => setTimeout(r, 500));
+    const trigger = await win.webContents.executeJavaScript(`(() => {
+      const r = document.querySelector('[aria-label="Session"]')?.getBoundingClientRect();
+      return r && { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    if (trigger) {
+      win.webContents.sendInputEvent({ type: "mouseDown", ...trigger, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", ...trigger, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 800));
+      const rect = await win.webContents.executeJavaScript(CARD_RECT);
+      fs.writeFileSync(path.join(outDir, "5m-session-picker.png"), (await win.webContents.capturePage(rect)).toPNG());
+      console.log("[snapshot] 5m-session-picker.png");
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      await new Promise((r) => setTimeout(r, 300));
+    }
+  }
   // A real click 60% along a message's recording (from its play button) jumps there.
   if (wanted("5j-audio-jump")) {
     await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);

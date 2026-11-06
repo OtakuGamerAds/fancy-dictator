@@ -22,7 +22,8 @@ Copy the text, or send it to your recent messages.
   audio"), both starting when the recording did, so they line up.
 - **Stop** (or `Ctrl+Enter`, `Esc`, or the shortcut again) ends the session: it is saved and
   moves below the box, which is empty for the next one. Below the box is one session at a
-  time, the latest; **Show more** brings older ones. Hiding the window ends a session too.
+  time, the latest; the arrows under it, or the list between them (each session named by when
+  it was recorded), show another. A new recording hides it until it ends. Hiding the window ends a session too.
 - Copy a session with the copy icon on it (a conversation's offers one speaker only too).
   Click into any bubble's text to edit it; it is saved when you click away.
 - Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"

@@ -26,6 +26,22 @@ export function formatAgo(timestamp: number, now = Date.now()): string {
   return new Date(timestamp).toLocaleDateString(undefined, { month: "short", day: "numeric" });
 }
 
+/** When a session was recorded: "Today, 18:42", "Yesterday, 09:10", "Nov 3, 14:05". */
+export function formatWhen(timestamp: number, now = Date.now()): string {
+  const date = new Date(timestamp);
+  const time = date.toLocaleTimeString(undefined, { hour: "2-digit", minute: "2-digit" });
+  const day = (offset: number) => {
+    const d = new Date(now);
+    d.setDate(d.getDate() - offset);
+    return d.toDateString();
+  };
+  if (date.toDateString() === day(0)) return `Today, ${time}`;
+  if (date.toDateString() === day(1)) return `Yesterday, ${time}`;
+  const sameYear = date.getFullYear() === new Date(now).getFullYear();
+  const when = date.toLocaleDateString(undefined, { month: "short", day: "numeric", ...(sameYear ? {} : { year: "numeric" }) });
+  return `${when}, ${time}`;
+}
+
 /**
  * "rtl" when most of the letters are Arabic/Hebrew/etc., so Arabic that starts with an
  * English word ("Oh, oh, الله يسلمك…") still reads right to left. A tie goes to the first letter.

@@ -407,6 +407,7 @@ export function App() {
       setPhase("starting");
       setMode(from);
       setView("main");
+      setHistoryOpen(false); // the new session alone, until it moves below
       setError(null);
       spokenEnd.current = null;
       textAtStart.current = textRef.current;

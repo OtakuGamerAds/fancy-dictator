@@ -1,4 +1,4 @@
-import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
+import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
@@ -12,11 +12,12 @@ import { EditableText } from "~/components/editableText";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { formatConversation, speakerName, speakerNumbers, speakerText, type Turn } from "~/lib/dialogue";
 import { InlineAudioPreview } from "~/components/files/InlineAudioPreview";
+import { QuietSelect } from "~/components/QuietSelect";
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
 import { useUndoNotice } from "~/lib/undoNotice";
 import type { HistoryEntry } from "~/lib/types";
-import { cn, formatAgo, formatDuration, textDirection } from "~/lib/utils";
+import { cn, formatAgo, formatDuration, formatWhen, textDirection } from "~/lib/utils";
 
 interface HistoryPanelProps {
   history: HistoryEntry[];
@@ -29,34 +30,30 @@ interface HistoryPanelProps {
   onClear(): void;
 }
 
-/** The list shows the latest session; each "Show more" adds this many older ones. */
-const PAGE = 3;
-
 /**
- * Recent transcriptions under the composer, drawn like your own messages in T3 Code's
- * timeline (TimelineUserMessageRow): end-aligned bg-message bubbles, actions on hover.
+ * The sessions below the text box, one at a time: the latest, until another is picked with the
+ * arrows or from the list between them (each named by when it was recorded).
  */
 export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onClear }: HistoryPanelProps) {
-  const [extra, setExtra] = useState(0);
   // The notice and its separator only while there is something to undo.
   const undoActive = useUndoNotice() !== null;
-  // One session at a time: the latest, until older ones are asked for.
-  const base = history.slice(0, 1);
-  const rest = history.filter((e) => !base.includes(e));
-  const shown = new Set([...base, ...rest.slice(0, extra)]);
-  const visible = history.filter((e) => shown.has(e)); // newest first, as stored
-  const remaining = history.length - visible.length;
+  const [selectedId, setSelectedId] = useState<string | null>(history[0]?.id ?? null);
+  // Where it was in the list, for when it is deleted: the next one down takes its place.
+  const lastIndex = useRef(0);
+  const found = history.findIndex((entry) => entry.id === selectedId);
+  const index = found >= 0 ? found : Math.min(lastIndex.current, history.length - 1);
+  lastIndex.current = Math.max(0, index);
+  const entry = history[index];
+  const go = (to: number) => setSelectedId(history[to]?.id ?? null);
   return (
     // No side padding of its own: the list's px-2 lines the bubbles up with the text box above.
     <div className="pt-1 pb-2">
-      {history.length === 0 ? (
+      {!entry ? (
         <p className="px-4 py-6 text-center text-muted-foreground text-xs">Your transcriptions will show up here.</p>
       ) : (
         <>
           <ul className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2">
-            {visible.map((entry) => (
-              <HistoryMessage key={entry.id} entry={entry} onCopy={onCopy} onEdit={onEdit} onDelete={onDelete} />
-            ))}
+            <HistoryMessage key={entry.id} entry={entry} onCopy={onCopy} onEdit={onEdit} onDelete={onDelete} />
           </ul>
           <div className="flex items-center justify-center gap-1 pt-1">
             {/* A size container needs a definite width, or it collapses to nothing. */}
@@ -67,14 +64,38 @@ export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onCl
                 <span className="text-muted-foreground/60 text-xs">·</span>
               </>
             )}
-            {remaining > 0 && (
-              <>
-                <Button variant="ghost-muted" size="xs" onClick={() => setExtra((n) => n + PAGE)}>
-                  Show {Math.min(PAGE, remaining)} more
-                </Button>
-                <span className="text-muted-foreground/60 text-xs">·</span>
-              </>
-            )}
+            {/* Older on the left, newer on the right; the session itself picked in between. */}
+            <Button
+              variant="ghost-muted"
+              size="icon-xs"
+              aria-label="Older session"
+              title="Older session"
+              disabled={index >= history.length - 1}
+              onClick={() => go(index + 1)}
+            >
+              <ChevronLeftIcon />
+            </Button>
+            <QuietSelect
+              value={entry.id}
+              items={history.map((session) => ({ value: session.id, label: formatWhen(session.createdAt) }))}
+              label={formatWhen(entry.createdAt)}
+              title="Pick a session"
+              ariaLabel="Session"
+              side="top"
+              align="center"
+              onChange={setSelectedId}
+            />
+            <Button
+              variant="ghost-muted"
+              size="icon-xs"
+              aria-label="Newer session"
+              title="Newer session"
+              disabled={index <= 0}
+              onClick={() => go(index - 1)}
+            >
+              <ChevronRightIcon />
+            </Button>
+            <span className="text-muted-foreground/60 text-xs">·</span>
             <Button variant="ghost-muted" size="xs" onClick={onClear}>
               Clear all
             </Button>
