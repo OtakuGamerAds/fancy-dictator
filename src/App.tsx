@@ -3,7 +3,7 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Composer, type Phase } from "~/components/Composer";
 import { HistoryPanel } from "~/components/HistoryPanel";
 import { SettingsView } from "~/components/SettingsView";
-import { type AudioTrack, mixTracks } from "~/lib/audioMix";
+import { ClipRecorder } from "~/lib/clipRecorder";
 import {
   type CopyWhich,
   Dialogue,
@@ -42,7 +42,6 @@ interface Lane {
   /** The same words by speaker, for when the box becomes a conversation mid-recording. */
   pendingRuns: PendingRun[];
   level: number;
-  track: AudioTrack;
   /** Set while the stream finishes because its source was switched off. */
   leaving: Promise<void> | null;
 }
@@ -198,16 +197,21 @@ export function App() {
   };
 
   // The recordings made into the box and not yet saved with its message, one clip each (a
-  // clip is the audio sent to Soniox during one recording: a track per stream, mixed on saving).
-  const boxClips = useRef<AudioTrack[][]>([]);
+  // clip holds every source heard during one recording).
+  const boxClips = useRef<ClipRecorder[]>([]);
+
+  /** The recording ended: its clip is finished (and kept, until the message is saved). */
+  const endClip = () => void boxClips.current.at(-1)?.stop();
+  /** The recording ended with nothing to keep: drop its clip. */
+  const dropClip = () => boxClips.current.pop()?.cancel();
 
   /** Save a message, with each recording made into it since it was last saved as a clip. */
   const saveEntry = async (entry: HistoryEntry) => {
     const clips = boxClips.current;
     boxClips.current = [];
-    for (const tracks of clips) {
-      const pcm = mixTracks(tracks);
-      if (pcm) await window.api.addAudioClip(entry.id, pcm);
+    for (const clip of clips) {
+      const bytes = await clip.stop();
+      if (bytes) await window.api.addAudioClip(entry.id, bytes);
     }
     setHistory(await window.api.addHistory(entry));
   };
@@ -225,6 +229,7 @@ export function App() {
   };
 
   const clearText = () => {
+    for (const clip of boxClips.current) clip.cancel();
     boxClips.current = [];
     turnsRef.current = null;
     setBlocks(null);
@@ -324,6 +329,7 @@ export function App() {
       lane.pending = "";
       dialogueRef.current?.closeLane(lane.id, false);
     }
+    endClip();
     finishDialogue();
     setPendingText("");
   };
@@ -338,7 +344,7 @@ export function App() {
    * Open a stream for each source, recording its audio into `clip`. All or none: if one cannot
    * start, the others are closed and the error says which source failed.
    */
-  const openLanes = async (sources: AudioSource[], clip: AudioTrack[]): Promise<Lane[]> => {
+  const openLanes = async (sources: AudioSource[], clip: ClipRecorder | undefined): Promise<Lane[]> => {
     const current = latest.current.settings!;
     // "Latest" is resolved from Soniox's model list, so new models are used without an app update.
     const model = await window.api.resolveModel();
@@ -351,7 +357,6 @@ export function App() {
         pending: "",
         pendingRuns: [],
         level: 0,
-        track: { at: null, chunks: [] },
         leaving: null,
       }),
     );
@@ -368,10 +373,7 @@ export function App() {
           diarize: dialogueRef.current !== null,
           onText: (final, pending, speech) => laneText(lane, final, pending, speech),
           onLevel: (level) => laneLevel(lane, level),
-          onAudio: (pcm) => {
-            lane.track.at ??= performance.now() - pcm.byteLength / 2 / 16;
-            lane.track.chunks.push(pcm);
-          },
+          onStream: (stream) => clip?.add(stream),
           onError: failRecording,
         });
       }),
@@ -384,7 +386,6 @@ export function App() {
       }
       throw { error: (results[failed] as PromiseRejectedResult).reason, source: lanes[failed]!.source };
     }
-    for (const lane of lanes) clip.push(lane.track);
     return lanes;
   };
 
@@ -416,7 +417,7 @@ export function App() {
       setError(null);
       spokenEnd.current = null;
       textAtStart.current = textRef.current;
-      const clip: AudioTrack[] = [];
+      const clip = new ClipRecorder();
       boxClips.current.push(clip);
       // Both sides, or a box that already holds a conversation: the words go into turns.
       if (from === "both" || turnsRef.current) ensureDialogue();
@@ -435,6 +436,7 @@ export function App() {
             lane.session?.cancel();
             dialogueRef.current?.closeLane(lane.id, false);
           }
+          if (boxClips.current.at(-1) === clip) dropClip();
           finishDialogue();
           return;
         }
@@ -442,6 +444,7 @@ export function App() {
         setPhase("recording");
       } catch (failure) {
         const { error: startError, source } = failure as { error: unknown; source: AudioSource };
+        if (boxClips.current.at(-1) === clip) dropClip();
         finishDialogue();
         setError(describeStartError(startError, source));
         setPhase("idle");
@@ -483,7 +486,7 @@ export function App() {
       }
       const want: AudioSource[] = next === "both" ? ["mic", "computer"] : [next];
       const missing = want.filter((source) => !lanes.some((lane) => lane.source === source && !lane.leaving));
-      const added = await openLanes(missing, boxClips.current.at(-1) ?? []);
+      const added = await openLanes(missing, boxClips.current.at(-1));
       if (phaseRef.current !== "recording") {
         for (const lane of added) lane.session?.cancel();
         return;
@@ -521,6 +524,7 @@ export function App() {
     // Soniox settles the last words; they arrive through each stream's onText.
     await Promise.all(lanes.map((lane) => lane.leaving ?? lane.session?.stop()));
     lanesRef.current = [];
+    endClip();
     // Anything still unsettled if it timed out is kept.
     const dialogue = dialogueRef.current;
     if (dialogue) {
@@ -534,7 +538,7 @@ export function App() {
     setPhase("idle");
     const combined = textRef.current.trim();
     if (combined === textAtStart.current.trim()) {
-      boxClips.current.pop(); // nothing was said: keep no clip of it
+      dropClip(); // nothing was said: keep no clip of it
       if (!combined) setError("No speech detected.");
       return { text: combined, durationMs: latest.current.durationMs };
     }
@@ -947,6 +951,17 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await wait(1500);
   const history = await window.api.getHistory();
   steps.saved = history[0] && { text: history[0].text, turns: history[0].turns, audioClips: history[0].audioClips };
+  // The clip: Opus in WebM, with a duration so it can be seeked.
+  if (history[0]?.audioClips) {
+    const src = `fd-audio://audio/${history[0].id}/0`;
+    const player = new Audio(src);
+    const duration = await new Promise<number | string>((resolve) => {
+      player.onloadedmetadata = () => resolve(player.duration);
+      player.onerror = () => resolve(`error ${player.error?.code}: ${player.error?.message}`);
+      setTimeout(() => resolve("timeout"), 5000);
+    });
+    steps.clip = { duration };
+  }
 
   // 6. Plain dictation that becomes a conversation midway.
   x.setBlocks(null);
@@ -1149,9 +1164,9 @@ function useSnapshotHooks(s: SnapshotSetters) {
             onText: (f, p) => events.push(`text:${f}|${p}`),
             onLevel: (level) => {
               levelMessages++;
+              heard[stage].chunks++;
               heard[stage].peak = Math.max(heard[stage].peak, level);
             },
-            onAudio: () => heard[stage].chunks++,
             onError: (m) => events.push(`error:${m}`),
           });
           await wait(1000);

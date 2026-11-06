@@ -12,8 +12,9 @@ Copy the text, or send it to your recent messages.
 - **conversation** listens to both, each as its own Soniox stream (twice the cost while it
   runs), and writes a dialogue the way T3 Code shows a thread with a guest. Soniox also tells
   the voices of each stream apart, so two people on the call (or at your mic) are two
-  speakers. Speakers are numbered in the order they first spoke, and each has a bubble color:
-  the first your message bubble, the next the guest's (pink), then blue, green and amber.
+  speakers (up to 15 on each side). Speakers are numbered in the order they first spoke; each
+  bubble has its speaker's name above it, as T3 names a guest, and a color: the first your
+  message bubble, the next the guest's (pink), then blue, green and amber, then round again.
   Turns follow the order they started and are never split: if someone cuts in, the sentence
   being said stays whole and theirs comes after it. Without headphones the mic hears the call
   too; a turn from the mic that is mostly words the call just played is dropped as echo.
@@ -70,7 +71,8 @@ pnpm probe      # check mic → worklet → Soniox socket (expects a 401 for the
 | Stack, theme tokens, UI primitives (`src/components/ui`), composer metrics, undo notice | [T3 Code](https://github.com/pingdotgg/t3code), MIT — see `THIRD_PARTY_LICENSE_T3CODE.txt` |
 | Soniox real-time session settings (endpoint detection) | live-caption-sermons |
 
-Settings, history and the messages' audio (`audio/`, 16 kHz WAV data, about 2 MB a minute;
+Settings, history and the messages' audio (`audio/`, 48 kHz Opus, about 1 MB a minute, recorded
+beside what is sent to Soniox so it sounds as recorded;
 erased with its message once `Ctrl+Z` can no longer bring it back) are stored in
 `%APPDATA%/fancy-dictator`. The Soniox key is
 encrypted with Windows' DPAPI through Electron `safeStorage`.

@@ -30,6 +30,7 @@
     "cross-env": "^10.0.0",
     "electron": "^44.10.1",
     "electron-builder": "^26.4.0",
+    "fix-webm-duration": "1.0.6",
     "lucide-react": "^0.564.0",
     "react": "^19.2.0",
     "react-dom": "^19.2.0",

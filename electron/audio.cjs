@@ -1,15 +1,19 @@
 /**
- * The voice behind each message: the exact audio sent to Soniox (16 kHz, mono, 16-bit PCM).
- * Every recording into a message is its own clip ("Keep dictating" adds the next one), kept
- * in userData/audio/<message id>.<clip number>.pcm. Clips are served to the page as WAV
- * files, from fd-audio://audio/<message id>/<clip number> (see main.cjs).
+ * The voice behind each message. Every recording into a message is its own clip ("Keep
+ * dictating" adds the next one), kept in userData/audio/<message id>.<clip number>.webm: Opus
+ * at 48 kHz, recorded beside what is sent to Soniox (src/lib/clipRecorder.ts). Clips saved by
+ * 0.1.12 and before are .pcm, the 16 kHz audio sent to Soniox, and are served as WAV. Clips
+ * play from fd-audio://audio/<message id>/<clip number> (see main.cjs).
  */
 const { app } = require("electron");
 const fs = require("fs");
 const path = require("path");
 
 const SAMPLE_RATE = 16000;
-const ID = /^[\w-]{1,64}$/; // message ids hold no dots, so "<id>.<clip>.pcm" splits cleanly
+const ID = /^[\w-]{1,64}$/; // message ids hold no dots, so "<id>.<clip>.webm" splits cleanly
+const CLIP = /^(\d+)\.(pcm|webm)$/;
+/** WebM files start with the EBML magic number. */
+const isWebm = (bytes) => bytes.length >= 4 && bytes[0] === 0x1a && bytes[1] === 0x45 && bytes[2] === 0xdf && bytes[3] === 0xa3;
 
 function dir() {
   return path.join(app.getPath("userData"), "audio");
@@ -23,14 +27,14 @@ function names() {
   }
 }
 
-/** The clip numbers a message has, in recording order. */
+/** A message's clips, in recording order: their number and file name. */
 function clipsOf(id) {
   if (typeof id !== "string" || !ID.test(id)) return [];
   const prefix = `${id}.`;
   return names()
-    .filter((name) => name.startsWith(prefix) && /^\d+\.pcm$/.test(name.slice(prefix.length)))
-    .map((name) => Number(name.slice(prefix.length, -4)))
-    .sort((a, b) => a - b);
+    .filter((name) => name.startsWith(prefix) && CLIP.test(name.slice(prefix.length)))
+    .map((name) => ({ number: Number(CLIP.exec(name.slice(prefix.length))[1]), name }))
+    .sort((a, b) => a.number - b.number);
 }
 
 /** How many clips a message has. */
@@ -38,13 +42,15 @@ function count(id) {
   return clipsOf(id).length;
 }
 
-/** Save one recording as the message's next clip. */
-function addClip(id, pcm) {
-  if (typeof id !== "string" || !ID.test(id) || !pcm || !pcm.byteLength) return false;
+/** Save one recording (WebM bytes) as the message's next clip. */
+function addClip(id, data) {
+  if (typeof id !== "string" || !ID.test(id) || !data || !data.byteLength) return false;
+  const bytes = Buffer.from(data);
+  if (!isWebm(bytes)) return false;
   const existing = clipsOf(id);
-  const next = existing.length ? existing[existing.length - 1] + 1 : 0;
+  const next = existing.length ? existing[existing.length - 1].number + 1 : 0;
   fs.mkdirSync(dir(), { recursive: true });
-  fs.writeFileSync(path.join(dir(), `${id}.${next}.pcm`), Buffer.from(pcm));
+  fs.writeFileSync(path.join(dir(), `${id}.${next}.webm`), bytes);
   return true;
 }
 
@@ -67,18 +73,21 @@ function wav(pcm) {
   return Buffer.concat([header, pcm]);
 }
 
-/** A message's clip (its position among the message's clips) as WAV bytes, or null. */
+/** A message's clip (its position among the message's clips): its bytes and type, or null. */
 function get(id, index) {
   const clip = clipsOf(id)[index];
   if (clip === undefined) return null;
-  return new Uint8Array(wav(fs.readFileSync(path.join(dir(), `${id}.${clip}.pcm`))));
+  const bytes = fs.readFileSync(path.join(dir(), clip.name));
+  return clip.name.endsWith(".webm")
+    ? { bytes: new Uint8Array(bytes), type: "audio/webm" }
+    : { bytes: new Uint8Array(wav(bytes)), type: "audio/wav" };
 }
 
 /** Delete every clip of these messages. */
 function remove(ids) {
   const gone = new Set(ids);
   for (const name of names()) {
-    if (!name.endsWith(".pcm") || !gone.has(name.split(".")[0])) continue;
+    if (!CLIP.test(name.slice(name.indexOf(".") + 1)) || !gone.has(name.split(".")[0])) continue;
     try {
       fs.unlinkSync(path.join(dir(), name));
     } catch {}
@@ -92,7 +101,7 @@ function remove(ids) {
 function prune(keepIds) {
   const keep = new Set(keepIds);
   for (const name of names()) {
-    if (!name.endsWith(".pcm") || keep.has(name.split(".")[0])) continue;
+    if (!CLIP.test(name.slice(name.indexOf(".") + 1)) || keep.has(name.split(".")[0])) continue;
     try {
       fs.unlinkSync(path.join(dir(), name));
     } catch {}
@@ -108,7 +117,7 @@ function sample(seconds = 7) {
     const envelope = 0.5 + 0.5 * Math.sin(2 * Math.PI * 3 * t);
     pcm.writeInt16LE(Math.round(4000 * envelope * Math.sin(2 * Math.PI * 220 * t)), i * 2);
   }
-  return new Uint8Array(wav(pcm));
+  return { bytes: new Uint8Array(wav(pcm)), type: "audio/wav" };
 }
 
 module.exports = { addClip, count, get, remove, prune, sample };

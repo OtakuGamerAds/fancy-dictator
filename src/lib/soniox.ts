@@ -89,8 +89,8 @@ export interface StartOptions {
    */
   onText(finalText: string, pendingText: string, speech: Speech): void;
   onLevel?(level: number): void;
-  /** Every chunk of audio sent to Soniox (16 kHz, mono, 16-bit PCM), to keep with the message. */
-  onAudio?(pcm: ArrayBuffer): void;
+  /** Each source's audio as it starts being heard, to record the clip kept with the message. */
+  onStream?(stream: MediaStream): void;
   onError(message: string): void;
 }
 
@@ -165,6 +165,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   source.connect(capture);
   capture.connect(mute);
   mute.connect(context.destination);
+  options.onStream?.(stream);
 
   let finalText = "";
   let pendingText = "";
@@ -257,7 +258,6 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   capture.port.onmessage = (event: MessageEvent<{ pcm: ArrayBuffer; level: number }>) => {
     options.onLevel?.(event.data.level);
     if (ended) return;
-    options.onAudio?.(event.data.pcm);
     sendOrQueue(event.data.pcm);
   };
 
@@ -278,7 +278,6 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
       // Send whatever is still sitting in the worklet's buffer, then end the audio.
       await new Promise<void>((resolve) => {
         const onFlush = (event: MessageEvent<{ pcm: ArrayBuffer }>) => {
-          options.onAudio?.(event.data.pcm);
           sendOrQueue(event.data.pcm);
           resolve();
         };
@@ -317,6 +316,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
       stopTracks(stream);
       stream = nextStream;
       source = nextNode;
+      options.onStream?.(nextStream);
     },
   };
 }

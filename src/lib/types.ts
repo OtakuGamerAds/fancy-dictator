@@ -49,7 +49,7 @@ export interface DesktopApi {
   clearHistory(): Promise<HistoryEntry[]>;
   replaceHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]>;
   /** Save one recording's 16 kHz 16-bit PCM as the message's next audio clip. */
-  addAudioClip(id: string, pcm: ArrayBuffer): Promise<boolean>;
+  addAudioClip(id: string, webm: ArrayBuffer): Promise<boolean>;
   /** Erase the audio of deleted messages (any that are back in the history are kept). */
   discardAudio(ids: string[]): Promise<void>;
   copy(text: string): Promise<void>;

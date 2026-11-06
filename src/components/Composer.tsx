@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ConversationTurn, speakerHue } from "~/components/ConversationTurn";
+import { ConversationTurn, speakerColors } from "~/components/ConversationTurn";
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
@@ -254,7 +254,7 @@ function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onC
           {speakers.map((number) => (
             <MenuItem key={number} onClick={() => onCopy(number)}>
               {/* The speaker's bubble color, as a legend swatch (T3's telemetry legend). */}
-              <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerHue(number))} />
+              <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerColors(number).hue)} />
               Copy {speakerName(number)} only
             </MenuItem>
           ))}

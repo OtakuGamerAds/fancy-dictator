@@ -513,13 +513,14 @@ protocol.registerSchemesAsPrivileged([
 
 function serveAudio() {
   protocol.handle("fd-audio", (request) => {
-    const [id = "", clip = ""] = new URL(request.url).pathname.split("/").filter(Boolean).map(decodeURIComponent);
-    const index = Number(clip);
+    const [id = "", position = ""] = new URL(request.url).pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const index = Number(position);
     if (!Number.isInteger(index) || index < 0) return new Response(null, { status: 404 });
-    const bytes = SNAPSHOT ? audio.sample(index === 0 ? 7 : 4) : audio.get(id, index);
-    if (!bytes) return new Response(null, { status: 404 });
-    return new Response(bytes, {
-      headers: { "content-type": "audio/wav", "content-length": String(bytes.byteLength), "cache-control": "no-store" },
+    // Snapshots play a made-up tone for their sample messages; the probe's recordings are real.
+    const clip = audio.get(id, index) ?? (SNAPSHOT ? audio.sample(index === 0 ? 7 : 4) : null);
+    if (!clip) return new Response(null, { status: 404 });
+    return new Response(clip.bytes, {
+      headers: { "content-type": clip.type, "content-length": String(clip.bytes.byteLength), "cache-control": "no-store" },
     });
   });
 }
