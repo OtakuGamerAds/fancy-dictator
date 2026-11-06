@@ -1,8 +1,8 @@
 import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ConversationTurn, speakerColors } from "~/components/ConversationTurn";
-import { EDITABLE_TEXT_CLASS_NAME, editableText } from "~/components/editableText";
+import { ConversationTurn, FOLDED_TEXT_CLASS_NAME, FOLDED_TEXT_FADE, speakerColors } from "~/components/ConversationTurn";
+import { EditableText } from "~/components/editableText";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { formatConversation, speakerName, speakerNumbers, speakerText, type Turn } from "~/lib/dialogue";
 import { InlineAudioPreview } from "~/components/files/InlineAudioPreview";
@@ -213,13 +213,16 @@ function HistoryMessage({
           {audio && <div className="mb-2">{audio}</div>}
           {/* The clamp is on the text itself, not the padded bubble, so no half line peeks out. */}
           <p
-            key={entry.text}
             ref={textRef}
             data-selectable
-            className={cn("whitespace-pre-wrap wrap-break-word", EDITABLE_TEXT_CLASS_NAME, !expanded && "line-clamp-3")}
-            {...editableText(entry.text, (text) => onEdit({ ...entry, text }), () => setExpanded(true))}
+            className={cn("whitespace-pre-wrap wrap-break-word", !expanded && FOLDED_TEXT_CLASS_NAME)}
+            style={overflows && !expanded ? FOLDED_TEXT_FADE : undefined}
           >
-            {entry.text}
+            <EditableText
+              text={entry.text}
+              onCommit={(text) => onEdit({ ...entry, text })}
+              onFocus={() => setExpanded(true)}
+            />
           </p>
           {showMore}
         </div>

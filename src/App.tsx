@@ -757,6 +757,10 @@ export function App() {
               onConversation={() => void startRecording(false, "both")}
               mode={mode}
               onSwitchMode={(next) => void switchMode(next)}
+              onTurnEdit={(id, text) => {
+                dialogueRef.current?.editTurn(id, text);
+                showDialogue();
+              }}
               // Stop ends the session: it is saved and moves below, and the box is ready for the next.
               onStop={() => void finishSession()}
               languages={settings?.languages ?? []}
@@ -825,6 +829,8 @@ const SAMPLE_TURNS: DialogueBlock[] = [
   { id: "c3", speaker: "computer:2", text: "وأنا كمان، بس ما لقيت وين الإعدادات.", pending: "" },
   { id: "c4", speaker: "mic:1", text: "حلو، وقسم الصوت، سجّل صوتنا كلنا؟", pending: "" },
   { id: "c5", speaker: "computer:1", text: "عفوًا، لحظة، أي قسم بالضبط؟", pending: "" },
+  // A short one stays on one line (a contenteditable once wrapped it).
+  { id: "c6", speaker: "mic:1", text: "والله منيح.", pending: "" },
 ];
 const SAMPLE_LIVE: DialogueBlock[] = [
   SAMPLE_TURNS[0]!,
@@ -928,7 +934,16 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await say("mic", "Hey, did", " you");
   await say("computer", "", "Sorry");
   steps.interrupt = box();
+  // Edited while recording: the words still coming for that turn land after the edit.
+  const editable = document.querySelector<HTMLElement>("[data-slot=composer-box] [data-speaker] [contenteditable]");
+  if (editable) {
+    editable.focus();
+    editable.textContent = "Hi, did";
+    editable.dispatchEvent(new InputEvent("input", { bubbles: true }));
+  }
   await say("mic", " you get it?", "", true);
+  steps.editedLive = box();
+  editable?.blur();
   await say("computer", "Sorry, which one?", "", true);
   steps.turns = box();
   // 2. The echo of their words in your microphone is dropped.
@@ -1171,6 +1186,12 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setDurationMs(0);
         x.setMode("mic");
         x.setHistory([SAMPLE_CONVERSATION, ...SAMPLE_HISTORY]);
+        x.setHistoryOpen(true);
+      },
+      // Short turns in a saved conversation stay on one line.
+      "5l-short-turns": (x) => {
+        const turns = SAMPLE_TURNS.slice(4).map(({ speaker, text }) => ({ speaker, text }));
+        x.setHistory([{ id: "short", text: formatConversation(turns), turns, createdAt: Date.now(), durationMs: 4000 }]);
         x.setHistoryOpen(true);
       },
       "6-settings": (x) => {

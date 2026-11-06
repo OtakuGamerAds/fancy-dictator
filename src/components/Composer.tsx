@@ -49,6 +49,8 @@ interface ComposerProps {
   /** What the recording listens to, switchable while it runs. */
   mode: ListenMode;
   onSwitchMode(mode: ListenMode): void;
+  /** A conversation's turn edited by hand while it is being recorded. */
+  onTurnEdit(id: string, text: string): void;
   onStop(): void;
   /** Copy the text (or one side of a conversation), keep it in the messages and empty the box. */
   languages: string[];
@@ -321,7 +323,7 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
  * A conversation, as T3 Code shows a thread with a guest: each speaker in a bubble of their own
  * color (ConversationTurn). Read-only, like messages.
  */
-function DialogueText({ phase, dialogue }: ComposerProps & { dialogue: DialogueBlock[] }) {
+function DialogueText({ phase, dialogue, onTurnEdit }: ComposerProps & { dialogue: DialogueBlock[] }) {
   const numbers = speakerNumbers(dialogue);
   const listening = phase !== "idle";
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -345,7 +347,14 @@ function DialogueText({ phase, dialogue }: ComposerProps & { dialogue: DialogueB
         // The gap between messages in the list below the box.
         <div className="flex flex-col gap-3">
           {dialogue.map((turn) => (
-            <ConversationTurn key={turn.id} turn={turn} number={numbers.get(turn.speaker) ?? 1} pending={turn.pending} />
+            <ConversationTurn
+              key={turn.id}
+              turn={turn}
+              number={numbers.get(turn.speaker) ?? 1}
+              pending={turn.pending}
+              // Its settled words can be edited while recording, as plain dictation can.
+              onLiveEdit={turn.id.startsWith("pending:") ? undefined : (text) => onTurnEdit(turn.id, text)}
+            />
           ))}
         </div>
       )}

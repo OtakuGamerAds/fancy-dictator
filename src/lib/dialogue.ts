@@ -198,6 +198,23 @@ export class Dialogue {
     this.lanes.delete(laneId);
   }
 
+  /**
+   * A turn's words edited by hand while recording. A stream still adding to it carries on at
+   * its end; emptied (and closed), the turn goes.
+   */
+  editTurn(id: string, text: string) {
+    const turn = this.turns.find((t) => t.id === id);
+    if (!turn) return;
+    turn.text = text;
+    let open = false;
+    for (const lane of this.lanes.values()) {
+      if (lane.open?.id !== id) continue;
+      open = true;
+      lane.open.start = Math.min(lane.open.start, text.length);
+    }
+    if (!open && !text.trim()) this.remove(id);
+  }
+
   /** The turns as shown now, the still-unsettled words included. */
   view(): DialogueBlock[] {
     const blocks: DialogueBlock[] = [];

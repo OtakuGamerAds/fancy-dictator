@@ -1,4 +1,6 @@
-import { EDITABLE_TEXT_CLASS_NAME, editableText } from "~/components/editableText";
+import { useLayoutEffect, useRef, useState } from "react";
+
+import { EditableText } from "~/components/editableText";
 import { guestBubbleClassName } from "~/components/guestMessageStyle";
 import { speakerName, type Turn } from "~/lib/dialogue";
 import { cn, textDirection } from "~/lib/utils";
@@ -16,6 +18,15 @@ const SPEAKER_COLORS = [
 ];
 const FIRST_SPEAKER = { surface: "bg-message", name: "text-muted-foreground", hue: "bg-muted-foreground/70" };
 
+/**
+ * A folded message, as T3 Code folds a long one (TimelineUserMessageRow's
+ * CollapsibleUserMessageBody): cut to a height, its last line fading out when there is more.
+ * (A line clamp would size the bubble to its longest word.)
+ */
+export const FOLDED_TEXT_CLASS_NAME = "max-h-[3lh] overflow-hidden";
+const FADE_MASK = "linear-gradient(to bottom, black calc(100% - 1lh), transparent)";
+export const FOLDED_TEXT_FADE = { WebkitMaskImage: FADE_MASK, maskImage: FADE_MASK };
+
 export function speakerColors(number: number) {
   return number <= 1 ? FIRST_SPEAKER : SPEAKER_COLORS[(number - 2) % SPEAKER_COLORS.length]!;
 }
@@ -31,6 +42,7 @@ export function ConversationTurn({
   pending = "",
   clamp = false,
   onEdit,
+  onLiveEdit,
   onFocus,
 }: {
   turn: Turn;
@@ -38,15 +50,25 @@ export function ConversationTurn({
   number: number;
   pending?: string;
   clamp?: boolean;
-  /** Its words can be edited in place (a saved message). */
+  /** Its words can be edited in place: given when editing finishes (a saved message)… */
   onEdit?: (text: string) => void;
+  /** …or with every keystroke (a conversation being recorded). */
+  onLiveEdit?: (text: string) => void;
   onFocus?: () => void;
 }) {
   // The space before the faint words stays between the words, not at the isolated edge.
   const lead = /^\s*/.exec(pending)?.[0] ?? "";
   const colors = speakerColors(number);
+  // Folded and longer than it shows: its last line fades.
+  const textRef = useRef<HTMLParagraphElement>(null);
+  const [cut, setCut] = useState(false);
+  useLayoutEffect(() => {
+    const element = textRef.current;
+    setCut(clamp && !!element && element.scrollHeight > element.clientHeight + 1);
+  }, [clamp, turn.text]);
   return (
-    <div className="flex flex-col items-end gap-1" data-speaker={number}>
+    // Full width, so the bubble's 80% is of the list, not of its own text.
+    <div className="flex w-full flex-col items-end gap-1" data-speaker={number}>
       {/* T3's GuestMessageName, in the speaker's color. */}
       <p className={cn("me-1 select-none text-2xs", colors.name)}>{speakerName(number)}</p>
       <div
@@ -54,23 +76,21 @@ export function ConversationTurn({
         data-no-drag
         className={cn("min-w-0 max-w-[80%] rounded-2xl p-3 text-message-foreground text-sm leading-relaxed", colors.surface)}
       >
-        {onEdit ? (
-          <p
-            key={turn.text}
-            data-turn-text
-            data-selectable
-            className={cn("whitespace-pre-wrap wrap-break-word", EDITABLE_TEXT_CLASS_NAME, clamp && "line-clamp-3")}
-            {...editableText(turn.text, onEdit, onFocus)}
-          >
-            {turn.text}
-          </p>
-        ) : (
-          <p data-turn-text data-selectable className={cn("whitespace-pre-wrap wrap-break-word", clamp && "line-clamp-3")}>
-            {turn.text}
-            {lead}
-            <bdi className="text-muted-foreground/70">{pending.slice(lead.length)}</bdi>
-          </p>
-        )}
+        <p
+          ref={textRef}
+          data-turn-text
+          data-selectable
+          className={cn("whitespace-pre-wrap wrap-break-word", clamp && FOLDED_TEXT_CLASS_NAME)}
+          style={cut ? FOLDED_TEXT_FADE : undefined}
+        >
+          {(onEdit || onLiveEdit) && turn.text ? (
+            <EditableText text={turn.text} onCommit={onEdit} onInput={onLiveEdit} onFocus={onFocus} />
+          ) : (
+            turn.text
+          )}
+          {lead}
+          <bdi className="text-muted-foreground/70">{pending.slice(lead.length)}</bdi>
+        </p>
       </div>
     </div>
   );
