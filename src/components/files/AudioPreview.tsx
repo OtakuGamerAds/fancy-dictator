@@ -1,6 +1,6 @@
 // Copied from T3 Code (https://github.com/pingdotgg/t3code), MIT License — see THIRD_PARTY_LICENSE_T3CODE.txt
 // Added here: clicking the chip's progress fill jumps there in the audio (T3 seeks only in its
-// full preview's player).
+// full preview's player), and the fill starts at the play button's side in Arabic too.
 import { LoaderCircleIcon, PauseIcon, PlayIcon, TriangleAlertIcon } from "lucide-react";
 import { createContext, type MouseEvent, useContext, useRef, useState } from "react";
 
@@ -95,12 +95,15 @@ function AudioChip(props: AudioPreviewProps) {
   });
   const loading = !props.failed && !ready;
   const seekable = !props.failed && duration > 0;
-  // The fill runs left to right across the chip, so where it is clicked is the time to go to.
+  // The fill runs across the chip from the play button's side, so where it is clicked is the
+  // time to go to.
   const seekTo = (event: MouseEvent<HTMLElement>) => {
     const element = audio.current;
     const rect = event.currentTarget.getBoundingClientRect();
     if (!element || !seekable || rect.width <= 0) return;
-    element.currentTime = Math.min(duration, Math.max(0, ((event.clientX - rect.left) / rect.width) * duration));
+    const rtl = getComputedStyle(event.currentTarget).direction === "rtl";
+    const along = rtl ? rect.right - event.clientX : event.clientX - rect.left;
+    element.currentTime = Math.min(duration, Math.max(0, (along / rect.width) * duration));
     setElapsed(element.currentTime);
   };
   const open = props.onOpen ?? (props.failed ? props.onRetry : undefined);
@@ -134,7 +137,7 @@ function AudioChip(props: AudioPreviewProps) {
     >
       <span
         aria-hidden
-        className="pointer-events-none absolute inset-y-0 left-0 -z-10 bg-(--context-chip-accent)/17"
+        className="pointer-events-none absolute inset-y-0 start-0 -z-10 bg-(--context-chip-accent)/17"
         style={{ width: `${duration > 0 ? Math.min(100, (elapsed / duration) * 100) : 0}%` }}
       />
       <ContextChipAction

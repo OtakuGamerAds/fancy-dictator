@@ -503,6 +503,23 @@ async function runSnapshots() {
     const menuOpen = await win.webContents.executeJavaScript(`!!document.querySelector("[data-slot=menu-popup]")`);
     console.log(`[snapshot] Esc on the Copy menu: menu ${menuOpen ? "still open" : "closed"}, window ${win.isVisible() ? "still shown" : "hidden"}`);
   }
+  // A real click 60% along a message's recording (from its play button) jumps there.
+  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);
+  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
+  await new Promise((r) => setTimeout(r, 1500)); // the recordings load
+  const chip = await win.webContents.executeJavaScript(`(() => {
+    const r = document.querySelector("[data-slot=context-chip]")?.getBoundingClientRect();
+    return r && { x: Math.round(r.right - r.width * 0.6), y: Math.round(r.top + r.height / 2) }; // an Arabic message
+  })()`);
+  if (chip) {
+    win.webContents.sendInputEvent({ type: "mouseDown", ...chip, button: "left", clickCount: 1 });
+    win.webContents.sendInputEvent({ type: "mouseUp", ...chip, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 400));
+    const rect = await win.webContents.executeJavaScript(CARD_RECT);
+    fs.writeFileSync(path.join(outDir, "5j-audio-jump.png"), (await win.webContents.capturePage(rect)).toPNG());
+    const label = await win.webContents.executeJavaScript(`document.querySelector("[data-slot=context-chip]").textContent`);
+    console.log(`[snapshot] 5j-audio-jump.png (after the click: ${label})`);
+  }
   quitting = true;
   app.quit();
 }
