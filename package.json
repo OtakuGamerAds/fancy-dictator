@@ -1,7 +1,7 @@
 {
   "name": "fancy-dictator",
   "productName": "Fancy Dictator",
-  "version": "0.1.15",
+  "version": "0.1.16",
   "description": "Press a shortcut, speak, and watch Soniox write your words live.",
   "private": true,
   "main": "electron/main.cjs",
