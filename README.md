@@ -30,7 +30,7 @@ Copy the text, or send it to your recent messages.
   Click into any bubble's text to edit it; it is saved when you click away.
 - Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"
   adds the next): press ▶ on one to listen again, and click along it to jump there.
-- **Replay** (Settings → Replay: the last 5 minutes up to an hour) keeps recording your mic and
+- **Replay** (Settings → Replay, keeping the last 1 to 90 minutes; 60 to start with) keeps recording your mic and
   the computer's audio on this device, deleting what is older, so a conversation can be caught
   after it started: **replay** in the empty box shows the timeline; click it to listen, drag
   its **In** and **Out** marks to the part to keep (as in a video editor), and **Transcribe**

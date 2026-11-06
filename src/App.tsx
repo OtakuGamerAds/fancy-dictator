@@ -495,7 +495,7 @@ export function App() {
   // ── Replay: the last minutes always recorded, to go back to ──
 
   const replayRef = useRef<ReplayBuffer | null>(null);
-  const replayMinutes = settings?.replayMinutes ?? 0;
+  const replayMinutes = settings?.replay ? settings.replayMinutes : 0;
   const micDeviceId = settings?.micDeviceId ?? "";
   useEffect(() => {
     if (!replayMinutes || new URLSearchParams(location.search).has("snapshot")) return;
@@ -1261,7 +1261,7 @@ function watchMicrophones() {
  */
 async function probeReplay() {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  await window.api.saveSettings({ replayMinutes: 5 });
+  await window.api.saveSettings({ replay: true, replayMinutes: 5 });
   const mics = watchMicrophones();
   const buffer = await ReplayBuffer.start();
   const began = Date.now();
@@ -1353,10 +1353,10 @@ function useSnapshotHooks(s: SnapshotSetters) {
     const levels = Array.from({ length: LEVEL_BARS }, (_, i) => 0.02 + 0.12 * Math.abs(Math.sin(i * 0.9)));
     const demoSettings: Settings = {
       sonioxApiKey: "sk-demo-1234567890",
-      sonioxOrgKey: "",
       sonioxModel: "latest",
       hotkey: "Control+Alt+Space",
       micDeviceId: "",
+      replay: true,
       replayMinutes: 60,
       languages: ["ar", "en"],
       runOnStartup: false,

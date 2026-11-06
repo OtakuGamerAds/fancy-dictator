@@ -324,50 +324,23 @@ function applyLoginItem() {
   });
 }
 
-// ── Soniox balance ────────────────────────────────────────────────────────
-
-/**
- * The prepaid balance, from Soniox's Organization API (GET /v1/organization/balance). It needs
- * an organization API key (snx_org_…); the project key used for dictation cannot read it.
- * Runs here rather than in the page, whose security policy only allows the dictation socket.
- */
-async function fetchBalance() {
-  if (SNAPSHOT) return { error: null, availableUsd: "1.58" }; // `pnpm snapshot` shows the layout
-  const key = settings.sonioxOrgKey;
-  if (!key) return { error: null };
-  try {
-    const response = await fetch("https://api.soniox.com/v1/organization/balance", {
-      headers: { Authorization: `Bearer ${key}` },
-    });
-    if (response.status === 401 || response.status === 403) {
-      return { error: "This key can't read the balance" };
-    }
-    if (!response.ok) return { error: "Couldn't load the balance" };
-    const body = await response.json();
-    return { error: null, availableUsd: body.available_balance_usd, invoiced: Boolean(body.invoice_billing_enabled) };
-  } catch {
-    return { error: "Couldn't reach Soniox" };
-  }
-}
-
 // ── IPC ───────────────────────────────────────────────────────────────────
 
 function sanitize(patch) {
   const out = {};
   if (typeof patch.sonioxApiKey === "string") out.sonioxApiKey = patch.sonioxApiKey.trim();
-  if (typeof patch.sonioxOrgKey === "string") out.sonioxOrgKey = patch.sonioxOrgKey.trim();
   if (typeof patch.sonioxModel === "string" && patch.sonioxModel) out.sonioxModel = patch.sonioxModel;
   if (typeof patch.hotkey === "string" && patch.hotkey) out.hotkey = patch.hotkey;
   if (typeof patch.micDeviceId === "string") out.micDeviceId = patch.micDeviceId;
   if (Array.isArray(patch.languages)) out.languages = patch.languages.filter((l) => typeof l === "string");
   if (typeof patch.runOnStartup === "boolean") out.runOnStartup = patch.runOnStartup;
-  if (Number.isFinite(patch.replayMinutes)) out.replayMinutes = Math.min(60, Math.max(0, Math.round(patch.replayMinutes)));
+  if (typeof patch.replay === "boolean") out.replay = patch.replay;
+  if (Number.isFinite(patch.replayMinutes)) out.replayMinutes = Math.min(90, Math.max(1, Math.round(patch.replayMinutes)));
   return out;
 }
 
 function registerIpc() {
   ipcMain.handle("settings:get", () => settings);
-  ipcMain.handle("balance:get", () => fetchBalance());
   ipcMain.handle("models:list", (_e, apiKey) =>
     SNAPSHOT
       ? { models: [{ id: "stt-rt-v6", name: "stt-rt-v6" }, { id: "stt-rt-v5", name: "stt-rt-v5" }], latest: "stt-rt-v6", error: null }
@@ -408,7 +381,7 @@ function registerIpc() {
   ipcMain.handle("history:replace", (_e, entries) => withAudio(store.replaceHistory(entries)));
   ipcMain.handle("audio:add-clips", (_e, id, clips) => audio.addRecording(id, clips));
   // Replay's pieces, kept for as long as Settings says; and a part of them transcribed.
-  const replayKeepMs = () => Math.max(0, Number(settings.replayMinutes) || 0) * 60_000;
+  const replayKeepMs = () => (settings.replay ? Math.max(1, Number(settings.replayMinutes) || 60) * 60_000 : 0);
   ipcMain.handle("replay:add-segment", (_e, segment) => replay.addSegment(segment, replayKeepMs()));
   ipcMain.handle("replay:list", () => {
     replay.prune(replayKeepMs());

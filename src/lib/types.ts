@@ -2,15 +2,14 @@ import type { Turn } from "./dialogue";
 
 export interface Settings {
   sonioxApiKey: string;
-  /** Organization API key (snx_org_…), only for reading the balance. Optional. */
-  sonioxOrgKey: string;
   /** "latest" (always the newest real-time model) or a specific Soniox model id. */
   sonioxModel: string;
   hotkey: string;
   micDeviceId: string;
   languages: string[];
   runOnStartup: boolean;
-  /** Replay: how many minutes of your mic and the computer's audio are kept to go back to (0: off). */
+  /** Replay: your mic and the computer's audio kept to go back to, for `replayMinutes` (1–90). */
+  replay: boolean;
   replayMinutes: number;
 }
 
@@ -70,8 +69,6 @@ export interface UpdateState {
 
 export interface DesktopApi {
   getSettings(): Promise<Settings>;
-  /** The Soniox prepaid balance; error null with no balance means no organization key is set. */
-  getBalance(): Promise<{ error: string | null; availableUsd?: string; invoiced?: boolean }>;
   /** Soniox's real-time models, newest first, and which one "latest" means right now. */
   listModels(apiKey?: string): Promise<{ models: { id: string; name: string }[]; latest: string; error: string | null }>;
   /** The model id the next recording uses. */

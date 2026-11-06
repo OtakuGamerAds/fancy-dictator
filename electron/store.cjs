@@ -10,14 +10,13 @@ const DEFAULT_SETTINGS = {
   sonioxApiKey: "",
   // "latest" (the newest real-time model Soniox lists) or a specific model id.
   sonioxModel: "latest",
-  // An organization API key (snx_org_…), only used to read the balance.
-  sonioxOrgKey: "",
   hotkey: "Control+Alt+Space",
   micDeviceId: "",
   languages: ["ar", "en"],
   runOnStartup: false,
-  // Replay: how many minutes of your mic and the computer's audio are kept to go back to (0: off).
-  replayMinutes: 0,
+  // Replay: your mic and the computer's audio kept for this many minutes, to go back to.
+  replay: false,
+  replayMinutes: 60,
   cardAnchor: null,
 };
 
@@ -63,7 +62,11 @@ function decrypt(stored) {
 
 function getSettings() {
   const raw = { ...DEFAULT_SETTINGS, ...readJson("settings.json", {}) };
-  return { ...raw, sonioxApiKey: decrypt(raw.sonioxApiKey), sonioxOrgKey: decrypt(raw.sonioxOrgKey) };
+  // An organization key (for the balance) was kept before 0.1.16; it is no longer used.
+  const { sonioxOrgKey: _unused, ...kept } = raw;
+  // Replay was one number of minutes (0: off) before 0.1.16.
+  const replay = typeof kept.replay === "boolean" ? kept.replay : Number(kept.replayMinutes) > 0;
+  return { ...kept, replay, replayMinutes: Number(kept.replayMinutes) || 60, sonioxApiKey: decrypt(kept.sonioxApiKey) };
 }
 
 function saveSettings(patch) {
@@ -71,7 +74,6 @@ function saveSettings(patch) {
   writeJson("settings.json", {
     ...next,
     sonioxApiKey: encrypt(next.sonioxApiKey),
-    sonioxOrgKey: encrypt(next.sonioxOrgKey),
   });
   return next;
 }

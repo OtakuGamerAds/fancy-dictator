@@ -19,14 +19,8 @@ interface SettingsViewProps {
   onSaved(settings: Settings): void;
 }
 
-/** How much Replay keeps. */
-const REPLAY_CHOICES: Record<string, string> = {
-  "0": "Off",
-  "5": "Last 5 minutes",
-  "15": "Last 15 minutes",
-  "30": "Last 30 minutes",
-  "60": "Last hour",
-};
+/** The most Replay keeps: an hour and a half. */
+const MAX_REPLAY_MINUTES = 90;
 
 /** Base UI Select needs a non-empty value for "System default". */
 const DEFAULT_MIC = "default";
@@ -40,7 +34,8 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
   const [loadingDevices, setLoadingDevices] = useState(false);
   const [saving, setSaving] = useState(false);
   const [error, setError] = useState<string | null>(null);
-  const [balanceKey, setBalanceKey] = useState(0);
+  // The minutes as typed (it may be empty for a moment).
+  const [minutesText, setMinutesText] = useState(String(settings.replayMinutes));
   const modelList = useModelList(draft.sonioxApiKey);
 
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft((d) => ({ ...d, [key]: value }));
@@ -99,7 +94,6 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
         setError(result.hotkeyError);
         setDraft((d) => ({ ...d, hotkey: result.settings.hotkey }));
       } else {
-        setBalanceKey((n) => n + 1);
         onSaved(result.settings);
       }
     } finally {
@@ -122,7 +116,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
       )}
 
       <div className="divide-y divide-border px-4">
-        <Row label="Soniox API key" description="Stored encrypted on this device" aside={<Balance refreshKey={balanceKey} />}>
+        <Row label="Soniox API key" description="Stored encrypted on this device">
           <div className="relative w-full">
             <Input
               nativeInput
@@ -148,18 +142,6 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
 
         <Row label="Model" description="Latest switches to Soniox's newest model by itself">
           <ModelPicker value={draft.sonioxModel} list={modelList} onChange={(value) => update("sonioxModel", value)} />
-        </Row>
-
-        <Row label="Organization API key" description="Optional, only to show your balance (snx_org_…)">
-          <Input
-            nativeInput
-            type={showKey ? "text" : "password"}
-            value={draft.sonioxOrgKey}
-            placeholder="Paste an organization API key"
-            spellCheck={false}
-            className="[&_input]:ps-9 [&_input]:pe-9 [&_input]:text-center"
-            onChange={(event) => update("sonioxOrgKey", event.target.value)}
-          />
         </Row>
 
         <Row label="Shortcut" description="Shows and hides Fancy Dictator">
@@ -213,24 +195,29 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
           </div>
         </Row>
 
-        <Row label="Replay" description="Keeps your mic and the computer's audio on this device, to transcribe later">
-          <Select
-            items={REPLAY_CHOICES}
-            value={String(draft.replayMinutes)}
-            onValueChange={(value) => update("replayMinutes", Number(value) || 0)}
-          >
-            <SelectTrigger size="sm" className="min-w-0 flex-1 ps-7">
-              <SelectValue className="text-center" />
-            </SelectTrigger>
-            <SelectPopup side="bottom" alignItemWithTrigger={false} className={SCROLL_LIST}>
-              {Object.entries(REPLAY_CHOICES).map(([value, label]) => (
-                <SelectItem key={value} value={value}>
-                  {label}
-                </SelectItem>
-              ))}
-            </SelectPopup>
-          </Select>
+        <Row label="Replay" description="Keeps your mic and the computer's audio on this device, to transcribe later" inline>
+          <Switch checked={draft.replay} onCheckedChange={(checked) => update("replay", checked)} />
         </Row>
+        {draft.replay && (
+          <Row label="Keep the last" description={`Minutes, up to ${MAX_REPLAY_MINUTES}`} inline>
+            <Input
+              nativeInput
+              type="number"
+              inputMode="numeric"
+              min={1}
+              max={MAX_REPLAY_MINUTES}
+              value={minutesText}
+              className="w-20 [&_input]:text-center"
+              onChange={(event) => {
+                // Digits only; kept within 1–90 once it is a number.
+                const digits = event.target.value.replace(/\D/g, "").slice(0, 2);
+                setMinutesText(digits);
+                if (digits) update("replayMinutes", Math.min(MAX_REPLAY_MINUTES, Math.max(1, Number(digits))));
+              }}
+              onBlur={() => setMinutesText(String(draft.replayMinutes))}
+            />
+          </Row>
+        )}
 
         <Row label="Run on startup" description="Works in the installed app" inline>
           <Switch checked={draft.runOnStartup} onCheckedChange={(checked) => update("runOnStartup", checked)} />
@@ -255,23 +242,17 @@ function Row({
   label,
   description,
   inline = false,
-  aside,
   children,
 }: {
   label: string;
   description?: string;
   inline?: boolean;
-  /** Shown at the right of the label, e.g. the balance. */
-  aside?: React.ReactNode;
   children: React.ReactNode;
 }) {
   const text = (
-    <div className="flex items-start justify-between gap-3">
-      <div className="min-w-0">
-        <p className="text-foreground text-sm">{label}</p>
-        {description && <p className="text-muted-foreground text-xs">{description}</p>}
-      </div>
-      {aside}
+    <div className="min-w-0">
+      <p className="text-foreground text-sm">{label}</p>
+      {description && <p className="text-muted-foreground text-xs">{description}</p>}
     </div>
   );
   if (inline) {
@@ -337,34 +318,6 @@ function toAccelerator(event: KeyboardEvent): string | null {
   // Plain letters would fire while typing anywhere; require a modifier unless it is an F-key.
   if (modifiers.length === 0 && !/^F\d+$/.test(key)) return null;
   return [...modifiers, key].join("+");
-}
-
-/**
- * The Soniox prepaid balance, read with the organization API key. Nothing shows until that key
- * is set; a key without the balance permission says so.
- */
-function Balance({ refreshKey }: { refreshKey: number }) {
-  const [state, setState] = useState<{ error: string | null; availableUsd?: string; invoiced?: boolean } | null>(null);
-  useEffect(() => {
-    let current = true;
-    void window.api.getBalance().then((result) => {
-      if (current) setState(result);
-    });
-    return () => {
-      current = false;
-    };
-  }, [refreshKey]);
-  if (!state || (!state.error && state.availableUsd === undefined)) return null;
-  if (state.error) return <span className="shrink-0 text-error-foreground text-xs">{state.error}</span>;
-  const amount = Number(state.availableUsd);
-  return (
-    <span className="shrink-0 text-end">
-      <span className="block text-muted-foreground text-xs">Balance</span>
-      <span className="font-semibold text-foreground text-sm tabular-nums">
-        {state.invoiced ? "Invoiced" : `$${Number.isFinite(amount) ? amount.toFixed(2) : state.availableUsd}`}
-      </span>
-    </span>
-  );
 }
 
 /** Soniox's real-time models for the key being edited (fetched again shortly after it changes). */
