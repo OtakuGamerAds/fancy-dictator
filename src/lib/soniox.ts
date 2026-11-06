@@ -7,11 +7,19 @@
  * Endpoint and model settings follow the live-caption-sermons project.
  */
 
+import type { PendingRun, SpeechPiece } from "./dialogue";
+
 const WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 // stt-rt-v6: stronger language switching within a sentence than v5, which Soniox retires on
 // 2026-12-15 (fully compatible; only the model name changes).
 export const SONIOX_MODEL = "stt-rt-v6";
 const SAMPLE_RATE = 16000;
+
+/** What one Soniox message added: the settled words by speaker, and where someone stopped. */
+export interface Speech {
+  settled: SpeechPiece[];
+  pending: PendingRun[];
+}
 
 const WORKLET_SOURCE = `
 class PcmCapture extends AudioWorkletProcessor {
@@ -73,11 +81,13 @@ export interface StartOptions {
   /** Where to listen first (defaults to the microphone). */
   source?: AudioSource;
   deviceId?: string;
+  /** Tell the voices apart (conversation mode): each word then says which speaker it is by. */
+  diarize?: boolean;
   /**
-   * The settled text so far, the words still being decided on, and where in the settled text
-   * the speaker stopped since the last call (Soniox endpoints; conversation mode ends turns there).
+   * The settled text so far and the words still being decided on; and, for conversation mode,
+   * what this message added by speaker, with where they stopped (Soniox endpoints).
    */
-  onText(finalText: string, pendingText: string, endpoints: number[]): void;
+  onText(finalText: string, pendingText: string, speech: Speech): void;
   onLevel?(level: number): void;
   /** Every chunk of audio sent to Soniox (16 kHz, mono, 16-bit PCM), to keep with the message. */
   onAudio?(pcm: ArrayBuffer): void;
@@ -195,6 +205,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
         // The languages picked in the composer are the main lever: hints bias recognition
         // toward them, so a language that is spoken should be among them (or none: auto).
         enable_language_identification: true,
+        ...(options.diarize ? { enable_speaker_diarization: true } : {}),
       }),
     );
     for (const data of queue.splice(0)) ws.send(data);
@@ -202,7 +213,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
 
   ws.onmessage = (event) => {
     let message: {
-      tokens?: { text?: string; is_final?: boolean }[];
+      tokens?: { text?: string; is_final?: boolean; speaker?: string }[];
       finished?: boolean;
       error_code?: number;
       error_message?: string;
@@ -218,16 +229,21 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     }
     if (Array.isArray(message.tokens)) {
       let nextPending = "";
-      const endpoints: number[] = [];
+      const speech: Speech = { settled: [], pending: [] };
       for (const token of message.tokens) {
         if (typeof token?.text !== "string") continue;
-        if (token.text === "<end>") endpoints.push(finalText.length);
+        if (token.text === "<end>") speech.settled.push("end");
         if (token.text === "<end>" || token.text === "<fin>") continue;
+        // Consecutive words of one speaker make one run.
+        const runs: (SpeechPiece | PendingRun)[] = token.is_final ? speech.settled : speech.pending;
+        const last = runs.at(-1);
+        if (last && last !== "end" && last.speaker === token.speaker) last.text += token.text;
+        else runs.push({ speaker: token.speaker, text: token.text });
         if (token.is_final) finalText += token.text;
         else nextPending += token.text;
       }
       pendingText = nextPending;
-      options.onText(finalText, pendingText, endpoints);
+      options.onText(finalText, pendingText, speech);
     }
     if (message.finished) resolveFinished();
   };

@@ -54,6 +54,12 @@
   --color-guest: var(--guest);
   --color-guest-foreground: var(--guest-foreground);
   --color-guest-surface: var(--guest-surface);
+  --color-speaker-3: var(--info);
+  --color-speaker-3-surface: var(--speaker-3-surface);
+  --color-speaker-4: var(--success);
+  --color-speaker-4-surface: var(--speaker-4-surface);
+  --color-speaker-5: var(--warning);
+  --color-speaker-5-surface: var(--speaker-5-surface);
   --color-warning-surface: var(--warning-surface);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   /* T3 Code's dense UI size (11px). */
@@ -104,6 +110,13 @@
   --guest: oklch(0.667 0.295 322.15);
   --guest-foreground: oklch(0.833 0.145 321.434);
   --guest-surface: color-mix(in srgb, var(--guest) 14%, var(--message-surface));
+  /* More speakers in a conversation: T3's guest surface in its other accent hues, info
+     (blue-500), success (emerald-500) and warning. */
+  --info: oklch(0.623 0.214 259.815);
+  --success: oklch(0.696 0.17 162.48);
+  --speaker-3-surface: color-mix(in srgb, var(--info) 14%, var(--message-surface));
+  --speaker-4-surface: color-mix(in srgb, var(--success) 14%, var(--message-surface));
+  --speaker-5-surface: color-mix(in srgb, var(--warning) 14%, var(--message-surface));
   --border: rgb(255 255 255 / 8%);
   --input: rgb(255 255 255 / 11%);
   --ring: var(--primary);

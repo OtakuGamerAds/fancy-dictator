@@ -11,12 +11,20 @@ import {
   type DialogueTurn,
   formatConversation,
   newTurnId,
-  SPEAKER_LABEL,
-  type Speaker,
+  type PendingRun,
+  speakerName,
   speakerText,
   type Turn,
+  voiceOf,
 } from "~/lib/dialogue";
-import { type AudioSource, describeStartError, type ListenMode, type SonioxSession, startSoniox } from "~/lib/soniox";
+import {
+  type AudioSource,
+  describeStartError,
+  type ListenMode,
+  type SonioxSession,
+  type Speech,
+  startSoniox,
+} from "~/lib/soniox";
 import type { HistoryEntry, Settings } from "~/lib/types";
 import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestAction } from "~/lib/undoNotice";
 import { joinSpoken } from "~/lib/utils";
@@ -31,14 +39,14 @@ interface Lane {
   /** How much of the stream's settled text has been placed in the box. */
   appended: number;
   pending: string;
+  /** The same words by speaker, for when the box becomes a conversation mid-recording. */
+  pendingRuns: PendingRun[];
   level: number;
   track: AudioTrack;
   /** Set while the stream finishes because its source was switched off. */
   leaving: Promise<void> | null;
 }
 
-/** Your microphone is you; the computer's audio is the person you are talking to. */
-const speakerOf = (source: AudioSource): Speaker => (source === "computer" ? "them" : "me");
 const savedTurns = (turns: DialogueTurn[]): Turn[] =>
   turns.filter((turn) => turn.text.trim()).map(({ speaker, text }) => ({ speaker, text: text.trim() }));
 
@@ -147,10 +155,10 @@ export function App() {
   const textAtStart = useRef("");
 
   // ── Conversation: the box as a dialogue of turns ──
-  // Who the plain text in the box was dictated by, should it become a conversation.
-  const plainSpeaker = useRef<Speaker>("me");
+  // Where the plain text in the box was dictated from, should it become a conversation.
+  const plainSource = useRef<AudioSource>("mic");
   // The box's turns when it holds a conversation (null: plain text). Its text is then the
-  // conversation written out ("You: …"), which is what Copy takes and what is saved.
+  // conversation written out ("Speaker 1: …"), which is what Copy takes and what is saved.
   const turnsRef = useRef<DialogueTurn[] | null>(null);
   const [blocks, setBlocks] = useState<DialogueBlock[] | null>(null);
   // While recording into a conversation: places each stream's words in its speaker's turns.
@@ -175,7 +183,7 @@ export function App() {
   const ensureDialogue = (): Dialogue => {
     if (dialogueRef.current) return dialogueRef.current;
     const plain = textRef.current;
-    const turns = turnsRef.current ?? (plain.trim() ? [{ id: newTurnId(), speaker: plainSpeaker.current, text: plain }] : []);
+    const turns = turnsRef.current ?? (plain.trim() ? [{ id: newTurnId(), speaker: voiceOf(plainSource.current), text: plain }] : []);
     dialogueRef.current = new Dialogue(turns);
     return dialogueRef.current;
   };
@@ -283,14 +291,14 @@ export function App() {
   };
 
   /** A stream's new words: into the conversation, or appended to the plain text. */
-  const laneText = (lane: Lane, final: string, pending: string, endpoints: number[]) => {
+  const laneText = (lane: Lane, final: string, pending: string, speech: Speech) => {
     const piece = final.slice(lane.appended);
-    const ends = endpoints.map((end) => end - lane.appended);
     lane.appended = final.length;
     lane.pending = pending;
+    lane.pendingRuns = speech.pending;
     const dialogue = dialogueRef.current;
     if (dialogue) {
-      dialogue.update(lane.id, piece, pending, ends);
+      dialogue.update(lane.id, speech.settled, speech.pending);
       showDialogue();
     } else {
       appendSpoken(piece);
@@ -341,12 +349,13 @@ export function App() {
         session: null,
         appended: 0,
         pending: "",
+        pendingRuns: [],
         level: 0,
         track: { at: null, chunks: [] },
         leaving: null,
       }),
     );
-    for (const lane of lanes) dialogueRef.current?.addLane(lane.id, speakerOf(lane.source));
+    for (const lane of lanes) dialogueRef.current?.addLane(lane.id, lane.source);
     const results = await Promise.allSettled(
       lanes.map(async (lane) => {
         lane.session = await startSoniox({
@@ -355,7 +364,9 @@ export function App() {
           languageHints: current.languages,
           source: lane.source,
           deviceId: current.micDeviceId || undefined,
-          onText: (final, pending, endpoints) => laneText(lane, final, pending, endpoints),
+          // In a conversation, the voices of each stream are told apart.
+          diarize: dialogueRef.current !== null,
+          onText: (final, pending, speech) => laneText(lane, final, pending, speech),
           onLevel: (level) => laneLevel(lane, level),
           onAudio: (pcm) => {
             lane.track.at ??= performance.now() - pcm.byteLength / 2 / 16;
@@ -409,7 +420,7 @@ export function App() {
       boxClips.current.push(clip);
       // Both sides, or a box that already holds a conversation: the words go into turns.
       if (from === "both" || turnsRef.current) ensureDialogue();
-      else plainSpeaker.current = speakerOf(from);
+      else plainSource.current = from;
       setPendingText("");
       setLevels(Array(LEVEL_BARS).fill(0));
       setCopied(false);
@@ -456,7 +467,7 @@ export function App() {
         if (!lane?.session) return;
         await lane.session.setSource(next);
         lane.source = next;
-        plainSpeaker.current = speakerOf(next);
+        plainSource.current = next;
         return;
       }
       if (!dialogueRef.current) {
@@ -464,8 +475,8 @@ export function App() {
         // running carries on in it as its speaker.
         const dialogue = ensureDialogue();
         for (const lane of lanes) {
-          dialogue.addLane(lane.id, speakerOf(lane.source), spokenContinues());
-          dialogue.update(lane.id, "", lane.pending);
+          dialogue.addLane(lane.id, lane.source, spokenContinues());
+          dialogue.update(lane.id, [], lane.pendingRuns);
         }
         setPendingText("");
         showDialogue();
@@ -800,19 +811,21 @@ const SAMPLE_HISTORY: HistoryEntry[] = [
   { id: "4", text: "بكرا الساعة عشرة منراجع الكود", createdAt: Date.now() - 26 * 3600000, durationMs: 9000 },
 ];
 
-// A conversation: you (the microphone) and them (the computer's audio). They cut in while you
-// were still talking, so their turn comes after yours.
+// A conversation: you at the microphone and two people on the call (two voices of the
+// computer's audio). One cut in while you were still talking, so their turn comes after yours.
 const SAMPLE_TURNS: DialogueBlock[] = [
-  { id: "c1", speaker: "me", text: "مرحبا، شفت النسخة الجديدة من البرنامج؟", pending: "" },
-  { id: "c2", speaker: "them", text: "اي، جربتها اليوم الصبح، والتحديث اشتغل تمام.", pending: "" },
-  { id: "c3", speaker: "me", text: "حلو، وقسم الصوت، سجّل صوتنا نحنا الاتنين؟", pending: "" },
-  { id: "c4", speaker: "them", text: "عفوًا، لحظة، أي قسم بالضبط؟", pending: "" },
+  { id: "c1", speaker: "mic:1", text: "مرحبا، شفت النسخة الجديدة من البرنامج؟", pending: "" },
+  { id: "c2", speaker: "computer:1", text: "اي، جربتها اليوم الصبح، والتحديث اشتغل تمام.", pending: "" },
+  { id: "c3", speaker: "computer:2", text: "وأنا كمان، بس ما لقيت وين الإعدادات.", pending: "" },
+  { id: "c4", speaker: "mic:1", text: "حلو، وقسم الصوت، سجّل صوتنا كلنا؟", pending: "" },
+  { id: "c5", speaker: "computer:1", text: "عفوًا، لحظة، أي قسم بالضبط؟", pending: "" },
 ];
 const SAMPLE_LIVE: DialogueBlock[] = [
   SAMPLE_TURNS[0]!,
   SAMPLE_TURNS[1]!,
-  { id: "c3", speaker: "me", text: "حلو، وقسم الصوت، سجّل", pending: " صوتنا نحنا" },
-  { id: "c4", speaker: "them", text: "", pending: "عفوًا، لحظة، أي" },
+  SAMPLE_TURNS[2]!,
+  { id: "c4", speaker: "mic:1", text: "حلو، وقسم الصوت، سجّل", pending: " صوتنا كلنا" },
+  { id: "c5", speaker: "computer:1", text: "", pending: "عفوًا، لحظة، أي" },
 ];
 const SAMPLE_CONVERSATION: HistoryEntry = {
   id: "c",
@@ -833,7 +846,7 @@ const LONG_TEXT =
  */
 async function probeConversation(x: SnapshotSetters, settings: Settings) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  type Token = { text: string; is_final: boolean };
+  type Token = { text: string; is_final: boolean; speaker?: string };
   const sockets: Partial<Record<AudioSource, { emit(tokens: Token[]): void; ended: boolean }>> = {};
   window.__fdTestSocket = (source) => {
     const socket = {
@@ -863,11 +876,11 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
     sockets[source] = socket;
     return socket as unknown as WebSocket;
   };
-  const say = async (source: AudioSource, final: string, pending = "", end = false) => {
+  const say = async (source: AudioSource, final: string, pending = "", end = false, speaker?: string) => {
     const tokens: Token[] = [];
-    if (final) tokens.push({ text: final, is_final: true });
+    if (final) tokens.push({ text: final, is_final: true, speaker });
     if (end) tokens.push({ text: "<end>", is_final: true });
-    if (pending) tokens.push({ text: pending, is_final: false });
+    if (pending) tokens.push({ text: pending, is_final: false, speaker });
     sockets[source]?.emit(tokens);
     await wait(60);
   };
@@ -882,7 +895,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
         const full = turn.querySelector("[data-turn-text]")?.textContent ?? "";
         const pending = turn.querySelector("bdi")?.textContent ?? "";
         const said = full.slice(0, full.length - pending.length).trimEnd();
-        return `${SPEAKER_LABEL[turn.dataset.speaker as Speaker]}: ${said}${pending ? `[${pending}]` : ""}`;
+        return `${speakerName(Number(turn.dataset.speaker))}: ${said}${pending ? `[${pending}]` : ""}`;
       })
       .join(" | ");
   };
@@ -912,6 +925,13 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await say("mic", "tried it this morning", "", true);
   await say("computer", "", "", true);
   steps.echo = box();
+  // 2b. A second voice on the call (Soniox speaker 2 of the computer's stream) is Speaker 3,
+  // and ends speaker 1's turn without an endpoint.
+  await say("computer", "Hi, I'm here too.", "", false, "2");
+  await say("computer", "", "Welcome", false, "1");
+  steps.secondVoice = box();
+  await say("computer", "Welcome!", "", true, "1");
+  steps.secondVoiceSettled = box();
   // 3. Switch to your microphone only: their stream settles and closes.
   const computerBefore = sockets.computer;
   await click('[aria-label="Your microphone"]');

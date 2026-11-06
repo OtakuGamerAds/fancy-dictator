@@ -10,13 +10,15 @@ Copy the text, or send it to your recent messages.
   call with). While recording, the mic / conversation / computer switch next to **Stop**
   changes it live.
 - **conversation** listens to both, each as its own Soniox stream (twice the cost while it
-  runs), and writes a dialogue the way T3 Code shows a thread with a guest: your turns in your
-  message bubble, theirs in the guest's (pink) bubble.
-  Turns follow the order they started and are never split: if they cut in, your sentence
-  stays whole and theirs comes after it. Without headphones the mic hears them too; a turn of
-  yours that is mostly their words is dropped as echo. **Copy** copies the conversation
-  ("You: … / Them: …"); its arrow copies only your side or only theirs. The saved message
-  keeps one clip with both voices.
+  runs), and writes a dialogue the way T3 Code shows a thread with a guest. Soniox also tells
+  the voices of each stream apart, so two people on the call (or at your mic) are two
+  speakers. Speakers are numbered in the order they first spoke, and each has a bubble color:
+  the first your message bubble, the next the guest's (pink), then blue, green and amber.
+  Turns follow the order they started and are never split: if someone cuts in, the sentence
+  being said stays whole and theirs comes after it. Without headphones the mic hears the call
+  too; a turn from the mic that is mostly words the call just played is dropped as echo.
+  **Copy** copies the conversation ("Speaker 1: … / Speaker 2: …"); its arrow copies one
+  speaker only. The saved message keeps one clip with all the voices.
 - **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
   the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
   so it always opens clean.

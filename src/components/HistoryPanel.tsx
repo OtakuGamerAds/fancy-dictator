@@ -2,6 +2,7 @@ import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ConversationTurn } from "~/components/ConversationTurn";
+import { speakerNumbers } from "~/lib/dialogue";
 import { InlineAudioPreview } from "~/components/files/InlineAudioPreview";
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
@@ -112,6 +113,7 @@ function HistoryMessage({
   const textRef = useRef<HTMLParagraphElement>(null);
   const turnsRef = useRef<HTMLDivElement>(null);
   const turns = entry.turns?.length ? entry.turns : null;
+  const numbers = turns && speakerNumbers(turns);
 
   useLayoutEffect(() => {
     const el = textRef.current ?? turnsRef.current;
@@ -175,7 +177,7 @@ function HistoryMessage({
             </div>
           )}
           {(expanded ? turns : turns.slice(0, FOLDED_TURNS)).map((turn, index) => (
-            <ConversationTurn key={index} turn={turn} clamp={!expanded} />
+            <ConversationTurn key={index} turn={turn} number={numbers?.get(turn.speaker) ?? 1} clamp={!expanded} />
           ))}
           {showMore && <div className="-mt-2 pe-1">{showMore}</div>}
         </div>

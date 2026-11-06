@@ -11,7 +11,7 @@ import {
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
-import { ConversationTurn } from "~/components/ConversationTurn";
+import { ConversationTurn, speakerHue } from "~/components/ConversationTurn";
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
 import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
@@ -19,7 +19,7 @@ import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
 import { Waveform } from "~/components/Waveform";
-import { type CopyWhich, type DialogueBlock, type Speaker } from "~/lib/dialogue";
+import { type CopyWhich, type DialogueBlock, speakerName, speakerNumbers } from "~/lib/dialogue";
 import type { ListenMode } from "~/lib/soniox";
 import { cn, countWords, formatDuration, joinSpoken, textDirection } from "~/lib/utils";
 
@@ -216,16 +216,17 @@ function EditRow({ text, dialogue, languages, onMic, onCopy, onLanguagesChange }
 
 /**
  * Copy for a conversation: the pill copies all of it; its chevron (T3's split primary button,
- * ComposerPrimaryActions' "Implement" menu) offers one side only.
+ * ComposerPrimaryActions' "Implement" menu) offers one speaker only.
  */
 function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onCopy(which: CopyWhich): void }) {
-  const said = (speaker: Speaker) => dialogue.some((turn) => turn.speaker === speaker && turn.text.trim());
+  // The speakers with settled words, numbered as Copy writes them.
+  const speakers = [...speakerNumbers(dialogue.map((turn) => ({ ...turn, pending: "" }))).values()];
   return (
     <div className="flex items-center">
       <button
         type="button"
         className={cn(MESSAGE_ACTION_PILL, "h-8 rounded-r-none px-3 sm:h-7")}
-        disabled={!said("me") && !said("them")}
+        disabled={speakers.length === 0}
         title="Copy the conversation, keep it in your messages, and start fresh (Ctrl+Enter)"
         onClick={() => onCopy("all")}
       >
@@ -246,13 +247,17 @@ function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onC
         </MenuTrigger>
         <MenuPopup align="end">
           {/* Plain items, like T3's "Implement in a new thread". */}
-          <MenuItem onClick={() => onCopy("all")}>Copy conversation</MenuItem>
-          <MenuItem disabled={!said("me")} onClick={() => onCopy("me")}>
-            Copy mine only
+          <MenuItem onClick={() => onCopy("all")}>
+            <span aria-hidden className="w-3 shrink-0" />
+            Copy conversation
           </MenuItem>
-          <MenuItem disabled={!said("them")} onClick={() => onCopy("them")}>
-            Copy theirs only
-          </MenuItem>
+          {speakers.map((number) => (
+            <MenuItem key={number} onClick={() => onCopy(number)}>
+              {/* The speaker's bubble color, as a legend swatch (T3's telemetry legend). */}
+              <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerHue(number))} />
+              Copy {speakerName(number)} only
+            </MenuItem>
+          ))}
         </MenuPopup>
       </Menu>
     </div>
@@ -390,10 +395,11 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
 }
 
 /**
- * A conversation, as T3 Code shows a thread with a guest: your turns in your message bubble,
- * theirs in the guest's bubble under their name (ConversationTurn). Read-only, like messages.
+ * A conversation, as T3 Code shows a thread with a guest: each speaker in a bubble of their own
+ * color (ConversationTurn). Read-only, like messages.
  */
 function DialogueText({ phase, dialogue }: ComposerProps & { dialogue: DialogueBlock[] }) {
+  const numbers = speakerNumbers(dialogue);
   const listening = phase !== "idle";
   const scrollRef = useRef<HTMLDivElement>(null);
   // While recording, follow the newest words.
@@ -420,7 +426,7 @@ function DialogueText({ phase, dialogue }: ComposerProps & { dialogue: DialogueB
         // The gap between messages in the list below the box.
         <div className="flex flex-col gap-3">
           {dialogue.map((turn) => (
-            <ConversationTurn key={turn.id} turn={turn} pending={turn.pending} />
+            <ConversationTurn key={turn.id} turn={turn} number={numbers.get(turn.speaker) ?? 1} pending={turn.pending} />
           ))}
         </div>
       )}

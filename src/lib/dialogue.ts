@@ -1,24 +1,33 @@
 /**
- * Conversation mode: your microphone and the computer's audio (the other person) go to Soniox
- * as two separate streams, and the box shows them as a dialogue of turns.
+ * Conversation mode: your microphone and the computer's audio go to Soniox as two separate
+ * streams, and the box shows them as a dialogue of turns. Soniox also tells the voices of each
+ * stream apart (speaker diarization), so two people at one microphone, or two on the call, are
+ * two speakers. Speakers are numbered in the order they first spoke.
  *
  * A turn starts when someone starts speaking and ends when Soniox says they stopped (its
- * endpoint, `<end>`). Turns are placed in the order they start and are never split: when the
- * other person cuts in, your sentence stays whole and theirs follows it, as if they had waited.
- * Two turns in a row from the same person are one paragraph.
+ * endpoint, `<end>`), or when another voice of the same stream speaks. Turns are placed in the
+ * order they start and are never split: when someone cuts in from the other stream, the
+ * sentence being said stays whole and theirs follows it, as if they had waited. Two turns in a
+ * row from the same speaker are one paragraph.
  *
- * Without headphones the microphone also hears the other person through the speakers. A turn
- * of yours that is mostly words they just said is that echo, and is dropped.
+ * Without headphones the microphone also hears the computer through the speakers. A turn from
+ * the microphone that is mostly words the computer just played is that echo, and is dropped.
  */
 import { joinSpoken } from "./utils";
 
-export type Speaker = "me" | "them";
-/** What Copy takes from a conversation: all of it, or one side. */
-export type CopyWhich = "all" | Speaker;
+type Source = "mic" | "computer";
+
+/**
+ * Who said a turn: one voice of one stream, "<source>:<Soniox's speaker id>" ("mic:1"). Messages
+ * saved by 0.1.11 have "me" and "them". Only the order voices first speak in is ever shown.
+ */
+export type Voice = string;
+/** What Copy takes from a conversation: all of it, or one speaker's words (by number). */
+export type CopyWhich = "all" | number;
 
 /** One paragraph of the dialogue, as saved with a message. */
 export interface Turn {
-  speaker: Speaker;
+  speaker: Voice;
   text: string;
 }
 
@@ -31,20 +40,40 @@ export interface DialogueBlock extends DialogueTurn {
   pending: string;
 }
 
-export const SPEAKER_LABEL: Record<Speaker, string> = { me: "You", them: "Them" };
+/** Words a stream settled, as Soniox sent them: runs of one speaker, and where someone stopped. */
+export type SpeechPiece = { speaker?: string; text: string } | "end";
+/** Words a stream is still deciding on, by speaker. */
+export interface PendingRun {
+  speaker?: string;
+  text: string;
+}
 
-/** "You: …" / "Them: …", one turn per line: what Copy puts on the clipboard. */
+/** Each voice's number: 1 for whoever spoke first (turns without words aside). */
+export function speakerNumbers(turns: readonly { speaker: Voice; text: string; pending?: string }[]): Map<Voice, number> {
+  const numbers = new Map<Voice, number>();
+  for (const turn of turns) {
+    if (numbers.has(turn.speaker) || !(turn.text.trim() || turn.pending?.trim())) continue;
+    numbers.set(turn.speaker, numbers.size + 1);
+  }
+  return numbers;
+}
+
+export const speakerName = (number: number) => `Speaker ${number}`;
+
+/** "Speaker 1: …" / "Speaker 2: …", one turn per line: what Copy puts on the clipboard. */
 export function formatConversation(turns: Turn[]): string {
+  const numbers = speakerNumbers(turns);
   return turns
     .filter((turn) => turn.text.trim())
-    .map((turn) => `${SPEAKER_LABEL[turn.speaker]}: ${turn.text.trim()}`)
+    .map((turn) => `${speakerName(numbers.get(turn.speaker)!)}: ${turn.text.trim()}`)
     .join("\n");
 }
 
-/** Only what one side said, one turn per line. */
-export function speakerText(turns: Turn[], speaker: Speaker): string {
+/** Only what one speaker said, one turn per line. */
+export function speakerText(turns: Turn[], number: number): string {
+  const numbers = speakerNumbers(turns);
   return turns
-    .filter((turn) => turn.speaker === speaker && turn.text.trim())
+    .filter((turn) => numbers.get(turn.speaker) === number && turn.text.trim())
     .map((turn) => turn.text.trim())
     .join("\n");
 }
@@ -53,9 +82,9 @@ export function newTurnId(): string {
   return crypto.randomUUID();
 }
 
-/** How far back the other side's words count when deciding whether yours were their echo. */
+/** How far back the computer's words count when deciding whether the microphone's were their echo. */
 const ECHO_WINDOW_MS = 4000;
-/** A turn of yours is echo when at least this share of its words were just said by them. */
+/** A turn from the microphone is echo when at least this share of its words were just played. */
 const ECHO_SHARE = 0.6;
 
 /** Words for comparing two transcripts of the same speech (case, diacritics and alef forms aside). */
@@ -64,7 +93,7 @@ function words(text: string): string[] {
     text
       .toLowerCase()
       .normalize("NFKC")
-      .replace(/[ً-ٰٟـ]/gu, "")
+      .replace(/[ً-ٰٟـ]/gu, "")
       .replace(/[أإآ]/gu, "ا")
       .replace(/ة/gu, "ه")
       .replace(/ى/gu, "ي")
@@ -91,16 +120,23 @@ interface OpenTurn {
 }
 
 interface Lane {
-  speaker: Speaker;
+  source: Source;
+  /** Whose words the stream is settling now: the open turn's speaker. */
+  voice: Voice;
   open: OpenTurn | null;
   pending: string;
+  /** Who the words still being decided on are by, when that is another voice of the stream. */
+  pendingVoice: Voice | null;
 }
 
-/** The dialogue while recording: one lane per Soniox stream feeds its speaker's turns. */
+/** The voice of a Soniox speaker id in a stream (a stream without diarization is speaker 1). */
+export const voiceOf = (source: Source, speaker?: string): Voice => `${source}:${speaker || "1"}`;
+
+/** The dialogue while recording: one lane per Soniox stream feeds the turns of its voices. */
 export class Dialogue {
   turns: DialogueTurn[];
   private lanes = new Map<number, Lane>();
-  /** What the other side said lately, to recognize it when it comes back through the microphone. */
+  /** What the computer played lately, to recognize it when it comes back through the microphone. */
   private heard: { at: number; text: string }[] = [];
   private now: () => number;
 
@@ -111,42 +147,53 @@ export class Dialogue {
 
   /**
    * A stream joins. With `continueLast`, its first words carry on the last paragraph when it
-   * is this speaker's (the box was already being dictated into, maybe mid-word).
+   * is this stream's (the box was already being dictated into, maybe mid-word).
    */
-  addLane(laneId: number, speaker: Speaker, continueLast = false) {
+  addLane(laneId: number, source: Source, continueLast = false) {
+    const voice = voiceOf(source);
     const last = this.turns.at(-1);
     const open =
-      continueLast && last?.speaker === speaker
+      continueLast && last?.speaker === voice
         ? { id: last.id, start: last.text.length, fresh: false, startedAt: this.now() }
         : null;
-    this.lanes.set(laneId, { speaker, open, pending: "" });
+    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null });
   }
 
-  /**
-   * New settled words from a stream (`piece`), the words it is still deciding on, and where
-   * in `piece` the speaker stopped (Soniox endpoints).
-   */
-  update(laneId: number, piece: string, pending: string, endpoints: number[] = []) {
+  /** New settled words from a stream, in order, and the words it is still deciding on. */
+  update(laneId: number, settled: SpeechPiece[], pending: PendingRun[]) {
     const lane = this.lanes.get(laneId);
     if (!lane) return;
-    let position = 0;
-    for (const end of endpoints) {
-      const at = Math.min(Math.max(end, position), piece.length);
-      this.append(lane, piece.slice(position, at));
-      this.closeTurn(lane);
-      position = at;
+    for (const piece of settled) {
+      if (piece === "end") {
+        this.closeTurn(lane);
+        continue;
+      }
+      const voice = voiceOf(lane.source, piece.speaker);
+      if (voice !== lane.voice && piece.text.trim()) {
+        this.closeTurn(lane); // another voice of this stream: the last one stopped
+        lane.voice = voice;
+      }
+      this.append(lane, piece.text);
     }
-    this.append(lane, piece.slice(position));
-    lane.pending = pending;
-    if (pending.trim() && !lane.open) this.openTurn(lane);
+    lane.pending = pending.map((run) => run.text).join("");
+    const first = pending.find((run) => run.text.trim());
+    const pendingVoice = first ? voiceOf(lane.source, first.speaker) : null;
+    if (pendingVoice && !lane.open) lane.voice = pendingVoice;
+    lane.pendingVoice = pendingVoice && pendingVoice !== lane.voice ? pendingVoice : null;
+    if (lane.pending.trim() && !lane.open) this.openTurn(lane);
   }
 
   /** A stream ends. Its unsettled words are kept unless `keepPending` is false (Esc). */
   closeLane(laneId: number, keepPending = true) {
     const lane = this.lanes.get(laneId);
     if (!lane) return;
+    if (keepPending && lane.pendingVoice) {
+      this.closeTurn(lane);
+      lane.voice = lane.pendingVoice;
+    }
     if (keepPending) this.append(lane, lane.pending);
     lane.pending = "";
+    lane.pendingVoice = null;
     this.closeTurn(lane);
     this.lanes.delete(laneId);
   }
@@ -159,15 +206,22 @@ export class Dialogue {
       let pending = "";
       for (const lane of this.lanes.values()) {
         if (lane.open?.id !== turn.id) continue;
-        // Their words coming back through your microphone are hidden while they are heard.
-        const sofar = turn.text.slice(lane.open.start) + lane.pending;
-        if (lane.speaker === "me" && this.isEchoSince(sofar, lane.open.startedAt)) {
+        const own = lane.pendingVoice ? "" : lane.pending;
+        // The computer's words coming back through your microphone are hidden while heard.
+        const sofar = turn.text.slice(lane.open.start) + own;
+        if (lane.source === "mic" && this.isEchoSince(sofar, lane.open.startedAt)) {
           text = turn.text.slice(0, lane.open.start).trimEnd();
         } else {
-          pending = joinSpoken(turn.text, lane.pending, !lane.open.fresh).slice(turn.text.length);
+          pending = joinSpoken(turn.text, own, !lane.open.fresh).slice(turn.text.length);
         }
       }
       if (text.trim() || pending.trim()) blocks.push({ ...turn, text, pending });
+    }
+    // Another voice of a stream starting to speak: last, until its words settle.
+    for (const [laneId, lane] of this.lanes) {
+      if (!lane.pendingVoice || !lane.pending.trim()) continue;
+      if (lane.source === "mic" && this.isEchoSince(lane.pending, this.now())) continue;
+      blocks.push({ id: `pending:${laneId}`, speaker: lane.pendingVoice, text: "", pending: lane.pending.trimStart() });
     }
     return blocks;
   }
@@ -183,7 +237,7 @@ export class Dialogue {
     if (!turn) return;
     turn.text = joinSpoken(turn.text, text, !open.fresh);
     open.fresh = false;
-    if (lane.speaker === "them") {
+    if (lane.source === "computer") {
       const now = this.now();
       this.heard.push({ at: now, text });
       this.heard = this.heard.filter((entry) => entry.at >= now - 60_000);
@@ -195,11 +249,11 @@ export class Dialogue {
     const last = this.turns.at(-1);
     const takenByOther = (id: string) => [...this.lanes.values()].some((other) => other !== lane && other.open?.id === id);
     const startedAt = this.now();
-    if (last && last.speaker === lane.speaker && !takenByOther(last.id)) {
+    if (last && last.speaker === lane.voice && !takenByOther(last.id)) {
       lane.open = { id: last.id, start: last.text.length, fresh: true, startedAt };
       return;
     }
-    const turn = { id: newTurnId(), speaker: lane.speaker, text: "" };
+    const turn = { id: newTurnId(), speaker: lane.voice, text: "" };
     this.turns.push(turn);
     lane.open = { id: turn.id, start: 0, fresh: true, startedAt };
   }
@@ -210,7 +264,7 @@ export class Dialogue {
     lane.open = null;
     const turn = this.turns.find((t) => t.id === open.id);
     if (!turn) return;
-    if (lane.speaker === "me" && this.isEchoSince(turn.text.slice(open.start), open.startedAt)) {
+    if (lane.source === "mic" && this.isEchoSince(turn.text.slice(open.start), open.startedAt)) {
       turn.text = turn.text.slice(0, open.start).trimEnd();
     }
     if (!turn.text.trim()) this.remove(turn.id);
@@ -219,7 +273,7 @@ export class Dialogue {
   private isEchoSince(mine: string, since: number): boolean {
     if (!mine.trim()) return false;
     const recent = this.heard.filter((entry) => entry.at >= since - ECHO_WINDOW_MS).map((entry) => entry.text);
-    for (const lane of this.lanes.values()) if (lane.speaker === "them") recent.push(lane.pending);
+    for (const lane of this.lanes.values()) if (lane.source === "computer") recent.push(lane.pending);
     return isEcho(mine, recent.join(" "));
   }
 
