@@ -32,10 +32,13 @@ Copy the text, or send it to your recent messages.
   adds the next): press ▶ on one to listen again, and click along it to jump there.
 - **Replay** (Settings → Replay: the last 5 minutes up to an hour) keeps recording your mic and
   the computer's audio on this device, deleting what is older, so a conversation can be caught
-  after it started: **replay** in the empty box shows the timeline; click it to listen, press
-  **Start here** where it began, and **Transcribe** turns it into a session as if it had been
-  recorded live from then (Soniox's async API; nothing leaves the device before). **Keep going
-  live** carries on recording into the same session. Windows shows the microphone in use
+  after it started: **replay** in the empty box shows the timeline; click it to listen, drag
+  its **In** and **Out** marks to the part to keep (as in a video editor), and **Transcribe**
+  turns it into a session as if it had been recorded live from In (Soniox's async API; nothing
+  leaves the device before). **Keep going live** carries on recording into the same session
+  (Out is then now). **Clean up after** (on by default) forgets everything up to Out once the
+  session is made, so Replay starts over from there. The app's own sound (Replay played back,
+  messages' recordings) is left out of the computer's audio. Windows shows the microphone in use
   while Replay is on.
 - The languages Soniox listens for are picked at the bottom-left of the box.
 - The toolbar has settings and updates at the left; the messages arrow and **—** (hide) at

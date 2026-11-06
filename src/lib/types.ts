@@ -26,6 +26,12 @@ export interface ReplaySegment {
   levels: number[];
 }
 
+/** What Replay keeps: its pieces, none of them used before `since`. */
+export interface ReplayKept {
+  since: number;
+  segments: ReplaySegment[];
+}
+
 /** A word of an async transcription. */
 export interface TimedToken {
   text: string;
@@ -79,8 +85,11 @@ export interface DesktopApi {
   addAudioClips(id: string, clips: { source: "mic" | "computer"; webm: ArrayBuffer }[]): Promise<boolean>;
   /** Replay: keep a piece of the recording; what is kept; forget it all; transcribe a part. */
   addReplaySegment(segment: Omit<ReplaySegment, "file"> & { webm: ArrayBuffer }): Promise<void>;
-  listReplay(): Promise<ReplaySegment[]>;
+  /** What is kept, and the moment before which nothing is (a cleaned-up part). */
+  listReplay(): Promise<ReplayKept>;
   readReplay(file: string): Promise<Uint8Array | null>;
+  /** Forget everything before `ms` (after a part was transcribed). */
+  trimReplay(ms: number): Promise<void>;
   clearReplay(): Promise<void>;
   transcribeReplay(webm: ArrayBuffer): Promise<TimedToken[]>;
   /** Erase the audio of deleted messages (any that are back in the history are kept). */

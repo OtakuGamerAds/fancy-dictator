@@ -27,7 +27,7 @@ import {
   type Speech,
   startSoniox,
 } from "~/lib/soniox";
-import type { HistoryEntry, ReplaySegment, Settings } from "~/lib/types";
+import type { HistoryEntry, ReplayKept, ReplaySegment, Settings } from "~/lib/types";
 import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestAction } from "~/lib/undoNotice";
 import { joinSpoken } from "~/lib/utils";
 
@@ -532,7 +532,7 @@ export function App() {
 
   /** Replay's part from `start` until `end`: a clip per source and the conversation in it. */
   const transcribePast = async (start: number, end: number, sources: AudioSource[]) => {
-    const segments = await loadReplay();
+    const { segments } = await loadReplay();
     const clips = (
       await Promise.all(
         sources.map(async (source) => ({
@@ -551,10 +551,13 @@ export function App() {
     return { clips, turns: turnsFromWords(streams) };
   };
 
-  const transcribeReplay = async ({ start, mode: chosen, keepLive }: ReplayRequest) => {
+  const transcribeReplay = async ({ start, end: until, mode: chosen, keepLive, cleanUp }: ReplayRequest) => {
     const sources: AudioSource[] = chosen === "both" ? ["mic", "computer"] : chosen === "none" ? [] : [chosen];
     if (sources.length === 0) return;
-    const end = Date.now();
+    // Carrying on live, the part ends now, where the live recording begins.
+    const end = keepLive ? Date.now() : until;
+    // Done, and only then: Replay forgets everything up to the part's end (as if opened then).
+    const cleanUpAfter = () => (cleanUp ? window.api.trimReplay(end) : Promise.resolve());
     setReplayError(null);
     if (keepLive) {
       // The live part starts now, as a conversation; the earlier part is put before it once
@@ -566,6 +569,7 @@ export function App() {
           dialogueRef.current?.prepend(turns);
           showDialogue();
           if (clips.length) boxClips.current.unshift(recordedAudio(clips));
+          return cleanUpAfter();
         })
         .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)))
         .finally(() => {
@@ -589,6 +593,7 @@ export function App() {
       };
       if (clips.length) await window.api.addAudioClips(entry.id, clips);
       setHistory(await window.api.addHistory(entry));
+      await cleanUpAfter();
       // Shown below the box like any session that just ended.
       setHistoryKey((key) => key + 1);
       setHistoryOpen(true);
@@ -945,7 +950,7 @@ export function App() {
 
 /** Replay's recording in snapshots: twelve minutes of made-up loudness, both sources. */
 const snapshotReplay = new URLSearchParams(location.search).has("snapshot")
-  ? async (): Promise<ReplaySegment[]> => {
+  ? async (): Promise<ReplayKept> => {
       const now = Date.now();
       const segments: ReplaySegment[] = [];
       for (const source of ["mic", "computer"] as const) {
@@ -958,7 +963,7 @@ const snapshotReplay = new URLSearchParams(location.search).has("snapshot")
           segments.push({ source, start, end: start + 30_000, file: `${source}.${start}.webm`, levels });
         }
       }
-      return segments;
+      return { since: 0, segments };
     }
   : null;
 
@@ -1191,6 +1196,53 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   return steps;
 }
 
+/**
+ * `pnpm probe`: is the app's own sound kept out of the computer's audio? A 1234 Hz tone is
+ * played by the page, and only that frequency is measured in what the computer's audio
+ * captures (other sound playing meanwhile does not count), with and without `restrictOwnAudio`.
+ */
+async function probeOwnAudio() {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  const TONE_HZ = 1234;
+  const measure = async (restrictOwnAudio: boolean) => {
+    const stream = await navigator.mediaDevices.getDisplayMedia({
+      video: true,
+      audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio } as MediaTrackConstraints,
+    });
+    const context = new AudioContext({ sampleRate: 48_000 });
+    const analyser = context.createAnalyser();
+    analyser.fftSize = 8192;
+    context.createMediaStreamSource(stream).connect(analyser);
+    const bins = new Float32Array(analyser.frequencyBinCount);
+    const bin = Math.round((TONE_HZ / 48_000) * analyser.fftSize);
+    const level = async () => {
+      let peak = -Infinity;
+      for (let i = 0; i < 10; i++) {
+        await wait(100);
+        analyser.getFloatFrequencyData(bins);
+        peak = Math.max(peak, bins[bin]!);
+      }
+      return Math.round(peak);
+    };
+    const before = await level();
+    const speakers = new AudioContext();
+    const tone = speakers.createOscillator();
+    tone.frequency.value = TONE_HZ;
+    const gain = speakers.createGain();
+    gain.gain.value = 0.05;
+    tone.connect(gain).connect(speakers.destination);
+    tone.start();
+    await wait(300);
+    const during = await level();
+    tone.stop();
+    void speakers.close();
+    for (const track of stream.getTracks()) track.stop();
+    void context.close();
+    return { beforeDb: before, duringDb: during };
+  };
+  return { excluded: await measure(true), included: await measure(false) };
+}
+
 /** The microphone streams opened from now on (until `restore`), to unplug them in the probe. */
 function watchMicrophones() {
   const streams: MediaStream[] = [];
@@ -1225,7 +1277,7 @@ async function probeReplay() {
   const reopenedAfterPlug = mics.streams.length > opened + 1;
   mics.restore();
   await buffer.flush();
-  const segments = await window.api.listReplay();
+  const { segments } = await window.api.listReplay();
   buffer.stop();
   const from = began + 1000;
   const to = Date.now() - 500;
@@ -1239,6 +1291,10 @@ async function probeReplay() {
     );
     clips[source] = webm ? { bytes: webm.byteLength, seconds: (await decoder.decodeAudioData(webm)).duration } : null;
   }
+  // Cleaned up after: nothing before the part's end is kept any more.
+  await window.api.trimReplay(to);
+  const trimmed = await window.api.listReplay();
+  const cleanedUp = trimmed.since === to && trimmed.segments.every((s) => s.end > to);
   await window.api.clearReplay();
   // Words as Soniox's async API gives them, laid out as a live conversation would be: they
   // cut in while you talk (after your turn), a second voice on the call, and your mic's echo
@@ -1262,6 +1318,7 @@ async function probeReplay() {
     },
   ]);
   return {
+    cleanedUp,
     reopenedAfterUnplug,
     reopenedAfterPlug,
     turns: formatConversation(turns),
@@ -1516,6 +1573,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
           heard,
           conversation: await probeConversation(setters.current, demoSettings),
           replay: await probeReplay(),
+          ownAudio: await probeOwnAudio(),
         };
       },
       views: () => Object.keys(scenes),

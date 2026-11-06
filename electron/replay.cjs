@@ -14,6 +14,8 @@ const NAME = /^(mic|computer)\.(\d+)\.(\d+)\.webm$/;
 
 /** The pieces kept, oldest first, each with its loudness every quarter second (for the timeline). */
 let segments = []; // { source, start, end, file, levels }
+/** Nothing before this moment is kept (a part was transcribed and cleaned up after). */
+let since = 0;
 
 function dir() {
   return path.join(app.getPath("userData"), "replay");
@@ -44,7 +46,18 @@ function prune(keepMs) {
 
 /** What is kept now, for the timeline and for playing or transcribing a part of it. */
 function list() {
-  return segments.map(({ source, start, end, file, levels }) => ({ source, start, end, file, levels }));
+  return { since, segments: segments.map(({ source, start, end, file, levels }) => ({ source, start, end, file, levels })) };
+}
+
+/**
+ * Forget everything before `ms`: Replay starts over from there, as if the app had been opened
+ * then. (A piece that runs past it stays, but only from `ms` on is shown or used.)
+ */
+function trimBefore(ms) {
+  if (!Number.isFinite(ms)) return;
+  since = Math.max(since, ms);
+  for (const segment of segments.filter((s) => s.end <= since)) removeFile(segment.file);
+  segments = segments.filter((s) => s.end > since);
 }
 
 /** A piece's bytes, to play or cut. */
@@ -60,9 +73,10 @@ function read(file) {
 /** Forget everything (Replay turned off, or the app starting). */
 function clear() {
   segments = [];
+  since = 0;
   try {
     for (const name of fs.readdirSync(dir())) if (NAME.test(name)) removeFile(name);
   } catch {}
 }
 
-module.exports = { addSegment, prune, list, read, clear };
+module.exports = { addSegment, prune, list, trimBefore, read, clear };

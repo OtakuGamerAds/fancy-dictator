@@ -109,13 +109,14 @@ async function openMicrophone(deviceId?: string): Promise<MediaStream> {
 
 /**
  * What the computer is playing, through Windows' loopback capture (electron/main.cjs answers
- * the request with it). Chromium's voice processing is for microphones and is turned off. The
+ * the request with it), without this app's own sound (`restrictOwnAudio`): Replay played back
+ * is not recorded again. Chromium's voice processing is for microphones and is turned off. The
  * screen's video comes with it and is dropped at once.
  */
 async function openComputerAudio(): Promise<MediaStream> {
   const stream = await navigator.mediaDevices.getDisplayMedia({
     video: true,
-    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false },
+    audio: { echoCancellation: false, noiseSuppression: false, autoGainControl: false, restrictOwnAudio: true } as MediaTrackConstraints,
   });
   for (const track of stream.getVideoTracks()) {
     track.stop();

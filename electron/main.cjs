@@ -415,6 +415,7 @@ function registerIpc() {
     return replay.list();
   });
   ipcMain.handle("replay:read", (_e, file) => replay.read(file));
+  ipcMain.handle("replay:trim", (_e, ms) => replay.trimBefore(Number(ms)));
   ipcMain.handle("replay:clear", () => replay.clear());
   ipcMain.handle("replay:transcribe", (_e, webm) => sonioxAsync.transcribe(settings.sonioxApiKey, webm, settings.languages));
   // Deleted messages can no longer be brought back: erase their audio, unless one was restored.
@@ -566,6 +567,31 @@ async function runSnapshots() {
       await new Promise((r) => setTimeout(r, 500));
       const menuOpen = await win.webContents.executeJavaScript(`!!document.querySelector("[data-slot=menu-popup]")`);
       console.log(`[snapshot] Esc on the Copy menu: menu ${menuOpen ? "still open" : "closed"}, window ${win.isVisible() ? "still shown" : "hidden"}`);
+    }
+  }
+  // Replay: In dragged to the left with the mouse.
+  if (wanted("9c-replay-drag")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("9b-replay")`);
+    await new Promise((r) => setTimeout(r, 800));
+    const mark = await win.webContents.executeJavaScript(`(() => {
+      const el = document.querySelector('[aria-label="In"]');
+      const r = el?.getBoundingClientRect();
+      return r && { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2), before: el.getAttribute("aria-valuetext") };
+    })()`);
+    if (mark) {
+      const at = { x: mark.x, y: mark.y };
+      win.webContents.sendInputEvent({ type: "mouseDown", ...at, button: "left", clickCount: 1 });
+      for (let step = 1; step <= 10; step++) {
+        win.webContents.sendInputEvent({ type: "mouseMove", x: mark.x - step * 12, y: mark.y, button: "left", modifiers: ["leftButtonDown"] });
+        await new Promise((r) => setTimeout(r, 30));
+      }
+      const held = await win.webContents.executeJavaScript(CARD_RECT);
+      fs.writeFileSync(path.join(outDir, "9c-replay-drag.png"), (await win.webContents.capturePage(held)).toPNG());
+      win.webContents.sendInputEvent({ type: "mouseUp", x: mark.x - 120, y: mark.y, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 300));
+      const after = await win.webContents.executeJavaScript(`document.querySelector('[aria-label="In"]').getAttribute("aria-valuetext")`);
+      const button = await win.webContents.executeJavaScript(`[...document.querySelectorAll("button")].find((b) => b.textContent.startsWith("Transcribe"))?.textContent`);
+      console.log(`[snapshot] 9c-replay-drag.png (In ${mark.before} → ${after}; ${button})`);
     }
   }
   // The session picker under the list, open.

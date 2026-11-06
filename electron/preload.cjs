@@ -20,6 +20,7 @@ contextBridge.exposeInMainWorld("api", {
   addReplaySegment: (segment) => ipcRenderer.invoke("replay:add-segment", segment),
   listReplay: () => ipcRenderer.invoke("replay:list"),
   readReplay: (file) => ipcRenderer.invoke("replay:read", file),
+  trimReplay: (ms) => ipcRenderer.invoke("replay:trim", ms),
   clearReplay: () => ipcRenderer.invoke("replay:clear"),
   transcribeReplay: (webm) => ipcRenderer.invoke("replay:transcribe", webm),
   discardAudio: (ids) => ipcRenderer.invoke("audio:discard", ids),
