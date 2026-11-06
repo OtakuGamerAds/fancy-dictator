@@ -83,6 +83,8 @@ declare global {
     __fdSnapshot?: {
       views(): string[];
       show(name: string): Promise<number>;
+      /** Set a view up without waiting to show it (the views before the ones a run renders). */
+      apply(name: string): void;
       probe(): Promise<unknown>;
       click(selector: string): Promise<boolean>;
     };

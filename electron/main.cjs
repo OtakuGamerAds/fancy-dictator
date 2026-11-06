@@ -416,9 +416,23 @@ async function runSnapshots() {
   const outDir = path.join(__dirname, "..", "snapshots");
   fs.mkdirSync(outDir, { recursive: true });
   win.showInactive();
-  if (process.env.FD_PROBE) console.log("[probe]", JSON.stringify(await win.webContents.executeJavaScript("window.__fdSnapshot.probe()")));
+  // `pnpm probe` only runs the probe; `pnpm snapshot 5e 5j` renders only the views whose names
+  // start with those (all of them without names).
+  if (process.env.FD_PROBE) {
+    console.log("[probe]", JSON.stringify(await win.webContents.executeJavaScript("window.__fdSnapshot.probe()")));
+    quitting = true;
+    app.quit();
+    return;
+  }
+  const only = process.argv.slice(2).filter((arg) => /^\d/.test(arg));
+  const wanted = (name) => only.length === 0 || only.some((prefix) => name.startsWith(prefix));
   const views = await win.webContents.executeJavaScript("window.__fdSnapshot.views()");
   for (const name of views) {
+    // Each view builds on the ones before it: those not wanted are only set up, not shown.
+    if (!wanted(name)) {
+      await win.webContents.executeJavaScript(`window.__fdSnapshot.apply(${JSON.stringify(name)})`);
+      continue;
+    }
     await win.webContents.executeJavaScript(`window.__fdSnapshot.show(${JSON.stringify(name)})`);
     await new Promise((r) => setTimeout(r, 500)); // let the card's size animation finish
     const rect = await win.webContents.executeJavaScript(CARD_RECT);
@@ -427,98 +441,108 @@ async function runSnapshots() {
     fs.writeFileSync(path.join(outDir, `${name}.png`), image.toPNG());
     console.log(`[snapshot] ${name}.png (${rect.width}×${height})`);
   }
-  // The settings dropdowns, open (the last view shown is Settings).
-  const triggers = await win.webContents.executeJavaScript(
-    "document.querySelectorAll('[data-slot=select-trigger]').length",
-  );
-  for (let i = 0; i < triggers; i++) {
-    // A real mouse click at the trigger's center, as a user would do it.
-    const { x, y } = await win.webContents.executeJavaScript(`(() => {
-      const r = document.querySelectorAll('[data-slot=select-trigger]')[${i}].getBoundingClientRect();
-      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-    })()`);
-    win.webContents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
-    win.webContents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 800));
-    // The card plus the open dropdown, which may hang below it.
-    const rect = await win.webContents.executeJavaScript(`(() => {
-      const card = document.querySelector("#root > div").getBoundingClientRect();
-      const popup = document.querySelector("[data-slot=select-popup]")?.getBoundingClientRect();
-      const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
-      return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
-    })()`);
-    const image = await win.webContents.capturePage(rect);
-    fs.writeFileSync(path.join(outDir, `7-settings-select-${i + 1}.png`), image.toPNG());
-    console.log(`[snapshot] 7-settings-select-${i + 1}.png`);
-    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+  // The settings dropdowns, open .
+  if (wanted("7-settings-select")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("6-settings")`);
     await new Promise((r) => setTimeout(r, 500));
+    const triggers = await win.webContents.executeJavaScript(
+      "document.querySelectorAll('[data-slot=select-trigger]').length",
+    );
+    for (let i = 0; i < triggers; i++) {
+      // A real mouse click at the trigger's center, as a user would do it.
+      const { x, y } = await win.webContents.executeJavaScript(`(() => {
+        const r = document.querySelectorAll('[data-slot=select-trigger]')[${i}].getBoundingClientRect();
+        return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()`);
+      win.webContents.sendInputEvent({ type: "mouseDown", x, y, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", x, y, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 800));
+      // The card plus the open dropdown, which may hang below it.
+      const rect = await win.webContents.executeJavaScript(`(() => {
+        const card = document.querySelector("#root > div").getBoundingClientRect();
+        const popup = document.querySelector("[data-slot=select-popup]")?.getBoundingClientRect();
+        const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
+        return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+      })()`);
+      const image = await win.webContents.capturePage(rect);
+      fs.writeFileSync(path.join(outDir, `7-settings-select-${i + 1}.png`), image.toPNG());
+      console.log(`[snapshot] 7-settings-select-${i + 1}.png`);
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      await new Promise((r) => setTimeout(r, 500));
+    }
   }
   // The model picker in Settings, open.
-  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("6-settings")`);
-  await new Promise((r) => setTimeout(r, 500));
-  const picker = await win.webContents.executeJavaScript(`(() => {
-    const el = document.querySelector('[data-slot=popover-trigger]');
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-  })()`);
-  if (picker) {
-    win.webContents.sendInputEvent({ type: "mouseDown", ...picker, button: "left", clickCount: 1 });
-    win.webContents.sendInputEvent({ type: "mouseUp", ...picker, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 800));
-    const rect = await win.webContents.executeJavaScript(`(() => {
-      const card = document.querySelector("#root > div").getBoundingClientRect();
-      const popup = document.querySelector("[data-slot=popover-popup]")?.getBoundingClientRect();
-      const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
-      return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+  if (wanted("7-model-picker")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("6-settings")`);
+    await new Promise((r) => setTimeout(r, 500));
+    const picker = await win.webContents.executeJavaScript(`(() => {
+      const el = document.querySelector('[data-slot=popover-trigger]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
     })()`);
-    fs.writeFileSync(path.join(outDir, "7-model-picker.png"), (await win.webContents.capturePage(rect)).toPNG());
-    console.log("[snapshot] 7-model-picker.png");
+    if (picker) {
+      win.webContents.sendInputEvent({ type: "mouseDown", ...picker, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", ...picker, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 800));
+      const rect = await win.webContents.executeJavaScript(`(() => {
+        const card = document.querySelector("#root > div").getBoundingClientRect();
+        const popup = document.querySelector("[data-slot=popover-popup]")?.getBoundingClientRect();
+        const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
+        return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+      })()`);
+      fs.writeFileSync(path.join(outDir, "7-model-picker.png"), (await win.webContents.capturePage(rect)).toPNG());
+      console.log("[snapshot] 7-model-picker.png");
+    }
   }
   // A conversation's Copy menu, open.
-  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5f-conversation-done")`);
-  await new Promise((r) => setTimeout(r, 500));
-  const copyOptions = await win.webContents.executeJavaScript(`(() => {
-    const el = document.querySelector('[aria-label="Copy options"]');
-    if (!el) return null;
-    const r = el.getBoundingClientRect();
-    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
-  })()`);
-  if (copyOptions) {
-    win.webContents.sendInputEvent({ type: "mouseDown", ...copyOptions, button: "left", clickCount: 1 });
-    win.webContents.sendInputEvent({ type: "mouseUp", ...copyOptions, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 800));
-    const rect = await win.webContents.executeJavaScript(`(() => {
-      const card = document.querySelector("#root > div").getBoundingClientRect();
-      const popup = document.querySelector("[data-slot=menu-popup]")?.getBoundingClientRect();
-      const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
-      return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
-    })()`);
-    fs.writeFileSync(path.join(outDir, "5h-conversation-copy-menu.png"), (await win.webContents.capturePage(rect)).toPNG());
-    console.log("[snapshot] 5h-conversation-copy-menu.png");
-    // Esc closes the menu only, not the window.
-    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+  if (wanted("5h-conversation-copy-menu")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5f-conversation-done")`);
     await new Promise((r) => setTimeout(r, 500));
-    const menuOpen = await win.webContents.executeJavaScript(`!!document.querySelector("[data-slot=menu-popup]")`);
-    console.log(`[snapshot] Esc on the Copy menu: menu ${menuOpen ? "still open" : "closed"}, window ${win.isVisible() ? "still shown" : "hidden"}`);
+    const copyOptions = await win.webContents.executeJavaScript(`(() => {
+      const el = document.querySelector('[aria-label="Copy options"]');
+      if (!el) return null;
+      const r = el.getBoundingClientRect();
+      return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    if (copyOptions) {
+      win.webContents.sendInputEvent({ type: "mouseDown", ...copyOptions, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", ...copyOptions, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 800));
+      const rect = await win.webContents.executeJavaScript(`(() => {
+        const card = document.querySelector("#root > div").getBoundingClientRect();
+        const popup = document.querySelector("[data-slot=menu-popup]")?.getBoundingClientRect();
+        const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
+        return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+      })()`);
+      fs.writeFileSync(path.join(outDir, "5h-conversation-copy-menu.png"), (await win.webContents.capturePage(rect)).toPNG());
+      console.log("[snapshot] 5h-conversation-copy-menu.png");
+      // Esc closes the menu only, not the window.
+      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+      win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+      await new Promise((r) => setTimeout(r, 500));
+      const menuOpen = await win.webContents.executeJavaScript(`!!document.querySelector("[data-slot=menu-popup]")`);
+      console.log(`[snapshot] Esc on the Copy menu: menu ${menuOpen ? "still open" : "closed"}, window ${win.isVisible() ? "still shown" : "hidden"}`);
+    }
   }
   // A real click 60% along a message's recording (from its play button) jumps there.
-  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);
-  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
-  await new Promise((r) => setTimeout(r, 1500)); // the recordings load
-  const chip = await win.webContents.executeJavaScript(`(() => {
-    const r = document.querySelector("[data-slot=context-chip]")?.getBoundingClientRect();
-    return r && { x: Math.round(r.right - r.width * 0.6), y: Math.round(r.top + r.height / 2) }; // an Arabic message
-  })()`);
-  if (chip) {
-    win.webContents.sendInputEvent({ type: "mouseDown", ...chip, button: "left", clickCount: 1 });
-    win.webContents.sendInputEvent({ type: "mouseUp", ...chip, button: "left", clickCount: 1 });
-    await new Promise((r) => setTimeout(r, 400));
-    const rect = await win.webContents.executeJavaScript(CARD_RECT);
-    fs.writeFileSync(path.join(outDir, "5j-audio-jump.png"), (await win.webContents.capturePage(rect)).toPNG());
-    const label = await win.webContents.executeJavaScript(`document.querySelector("[data-slot=context-chip]").textContent`);
-    console.log(`[snapshot] 5j-audio-jump.png (after the click: ${label})`);
+  if (wanted("5j-audio-jump")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
+    await new Promise((r) => setTimeout(r, 1500)); // the recordings load
+    const chip = await win.webContents.executeJavaScript(`(() => {
+      const r = document.querySelector("[data-slot=context-chip]")?.getBoundingClientRect();
+      return r && { x: Math.round(r.right - r.width * 0.6), y: Math.round(r.top + r.height / 2) }; // an Arabic message
+    })()`);
+    if (chip) {
+      win.webContents.sendInputEvent({ type: "mouseDown", ...chip, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", ...chip, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 400));
+      const rect = await win.webContents.executeJavaScript(CARD_RECT);
+      fs.writeFileSync(path.join(outDir, "5j-audio-jump.png"), (await win.webContents.capturePage(rect)).toPNG());
+      const label = await win.webContents.executeJavaScript(`document.querySelector("[data-slot=context-chip]").textContent`);
+      console.log(`[snapshot] 5j-audio-jump.png (after the click: ${label})`);
+    }
   }
   quitting = true;
   app.quit();

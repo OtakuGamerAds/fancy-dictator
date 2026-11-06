@@ -62,8 +62,9 @@ pnpm dev        # Vite + Electron with hot reload
 pnpm build      # typecheck + build the renderer
 pnpm start      # run the built app
 pnpm dist       # build the installer into ./release (no publishing)
-pnpm snapshot   # render every view to ./snapshots/*.png
-pnpm probe      # check mic → worklet → Soniox socket (expects a 401 for the fake key)
+pnpm snapshot   # render every view to ./snapshots/*.png (`pnpm snapshot 5e 5j`: only those)
+pnpm probe      # check mic → worklet → Soniox socket (expects a 401 for the fake key) and the
+                # conversation flow with scripted Soniox sockets; renders nothing
 ```
 
 ## Where things come from

@@ -1226,6 +1226,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
         return { events, levelMessages, heard, conversation: await probeConversation(setters.current, demoSettings) };
       },
       views: () => Object.keys(scenes),
+      apply: (name) => scenes[name]?.(setters.current),
       show: async (name) => {
         scenes[name]?.(setters.current);
         await frame();
