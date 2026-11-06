@@ -55,54 +55,60 @@ export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onCl
           <ul className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2">
             <HistoryMessage key={entry.id} entry={entry} onEdit={onEdit} />
           </ul>
-          <div className="flex items-center gap-1 px-2 pt-1">
-            {/* Older on the left, newer on the right; the session itself picked in between. */}
-            <Button
-              variant="ghost-muted"
-              size="icon-xs"
-              aria-label="Older session"
-              title="Older session"
-              disabled={index >= history.length - 1}
-              onClick={() => go(index + 1)}
-            >
-              <ChevronLeftIcon />
-            </Button>
-            <QuietSelect
-              value={entry.id}
-              items={history.map((session) => ({ value: session.id, label: formatWhen(session.createdAt) }))}
-              label={formatWhen(entry.createdAt)}
-              title="Pick a session"
-              ariaLabel="Session"
-              side="top"
-              align="start"
-              onChange={setSelectedId}
-              footer={
-                // Every session at once: rare and not to be hit by mistake, so not on the bar.
-                <button
-                  type="button"
-                  className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-destructive-foreground text-base outline-none hover:bg-accent sm:min-h-7 sm:text-sm"
-                  onClick={onClear}
-                >
-                  <Trash2Icon className="size-4" />
-                  Clear all sessions
-                </button>
-              }
-            />
-            <Button
-              variant="ghost-muted"
-              size="icon-xs"
-              aria-label="Newer session"
-              title="Newer session"
-              disabled={index <= 0}
-              onClick={() => go(index - 1)}
-            >
-              <ChevronRightIcon />
-            </Button>
+          {/* Three columns: the left one free (the undo notice when there is one), the sessions
+              centered, the shown session's actions on the right. */}
+          <div className="grid grid-cols-[1fr_auto_1fr] items-center gap-1 px-2 pt-1">
             {/* A size container needs a definite width, or it collapses to nothing. */}
-            <span className="flex min-w-0 flex-1 justify-center">
-              {showUndo && undoActive && <UndoNotice className="w-40 justify-center" />}
+            <span className="flex min-w-0 justify-start">
+              {showUndo && undoActive && <UndoNotice className="w-32 justify-start" />}
             </span>
-            <SessionActions entry={entry} onCopy={onCopy} onDelete={onDelete} />
+            {/* Older on the left, newer on the right; the session itself picked in between. */}
+            <div className="flex items-center gap-1">
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label="Older session"
+                title="Older session"
+                disabled={index >= history.length - 1}
+                onClick={() => go(index + 1)}
+              >
+                <ChevronLeftIcon />
+              </Button>
+              <QuietSelect
+                value={entry.id}
+                items={history.map((session) => ({ value: session.id, label: formatWhen(session.createdAt) }))}
+                label={formatWhen(entry.createdAt)}
+                title="Pick a session"
+                ariaLabel="Session"
+                side="top"
+                align="center"
+                onChange={setSelectedId}
+                footer={
+                  // Every session at once: rare and not to be hit by mistake, so not on the bar.
+                  <button
+                    type="button"
+                    className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-destructive-foreground text-base outline-none hover:bg-accent sm:min-h-7 sm:text-sm"
+                    onClick={onClear}
+                  >
+                    <Trash2Icon className="size-4" />
+                    Clear all sessions
+                  </button>
+                }
+              />
+              <Button
+                variant="ghost-muted"
+                size="icon-xs"
+                aria-label="Newer session"
+                title="Newer session"
+                disabled={index <= 0}
+                onClick={() => go(index - 1)}
+              >
+                <ChevronRightIcon />
+              </Button>
+            </div>
+            <span className="flex justify-end">
+              <SessionActions entry={entry} onCopy={onCopy} onDelete={onDelete} />
+            </span>
           </div>
         </>
       )}
