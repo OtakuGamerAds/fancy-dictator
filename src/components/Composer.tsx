@@ -405,11 +405,7 @@ function DialogueText({ phase, dialogue }: ComposerProps & { dialogue: DialogueB
     if (scroller && listening) scroller.scrollTop = scroller.scrollHeight;
   }, [dialogue, listening]);
   return (
-    <div
-      ref={scrollRef}
-      data-no-drag
-      className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
-    >
+    <div ref={scrollRef} className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1">
       {dialogue.length === 0 ? (
         <div className={cn(FIELD_TEXT, "min-h-[1lh] text-center")}>
           {listening && (

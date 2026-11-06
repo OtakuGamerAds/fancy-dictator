@@ -50,6 +50,13 @@ const savedTurns = (turns: DialogueTurn[]): Turn[] =>
   turns.filter((turn) => turn.text.trim()).map(({ speaker, text }) => ({ speaker, text: text.trim() }));
 
 const LEVEL_BARS = 18;
+/**
+ * What does not drag the window: whatever you can click, type in or select (buttons, the text,
+ * the bubbles, the recordings). Every other spot of the card drags it, the gaps of a list that
+ * scrolls included: the drag is done here, not by a drag region, which would swallow the wheel.
+ */
+const NO_DRAG =
+  'button, input, textarea, select, a, [role="button"], [role="switch"], [data-selectable], [data-no-drag], [data-slot="context-chip"]';
 /** One width for everything: text wraps and the card grows downward instead of wider. */
 const CARD_WIDTH = 420;
 const NEEDS_KEY = "Paste your Soniox API key to start dictating.";
@@ -711,8 +718,19 @@ export function App() {
     // The card hugs the window's right edge, so the ✕ in its corner stays under the mouse
     // while the card shrinks or grows.
     <div
-      className="drag-region overflow-hidden rounded-2xl border border-border bg-background transition-[height] duration-200 ease-drawer"
+      className="overflow-hidden rounded-2xl border border-border bg-background transition-[height] duration-200 ease-drawer"
       style={{ width: CARD_WIDTH, height: cardHeight }}
+      onPointerDown={(event) => {
+        const target = event.target as HTMLElement;
+        if (event.button !== 0 || target.closest(NO_DRAG)) return;
+        // A list's scrollbar scrolls it (on the left for Arabic): only inside it drags.
+        const x = event.nativeEvent.offsetX;
+        if (x < target.clientLeft || x >= target.clientLeft + target.clientWidth) return;
+        event.preventDefault(); // no text selection or focus change from a drag
+        event.currentTarget.setPointerCapture(event.pointerId);
+        window.api.startDrag();
+      }}
+      onLostPointerCapture={() => window.api.endDrag()}
     >
       <div
         ref={contentRef}

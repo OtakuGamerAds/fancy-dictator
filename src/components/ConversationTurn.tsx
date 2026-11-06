@@ -45,6 +45,7 @@ export function ConversationTurn({
       <p className={cn("me-1 select-none text-2xs", colors.name)}>{speakerName(number)}</p>
       <div
         dir={textDirection(turn.text + pending)}
+        data-no-drag
         className={cn("min-w-0 max-w-[80%] rounded-2xl p-3 text-message-foreground text-sm leading-relaxed", colors.surface)}
       >
         <p data-turn-text data-selectable className={cn("whitespace-pre-wrap wrap-break-word", clamp && "line-clamp-3")}>

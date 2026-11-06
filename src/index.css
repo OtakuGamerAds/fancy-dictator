@@ -223,23 +223,6 @@
   display: block !important;
 }
 
-/* Drag the window by its empty areas; controls stay clickable. */
-/* The whole card drags the window from any empty spot. Anything you can click, type in,
-   select or scroll opts out: a drag region swallows clicks, selection and the wheel. */
-.drag-region {
-  -webkit-app-region: drag;
-}
-.drag-region button,
-.drag-region input,
-.drag-region textarea,
-.drag-region select,
-.drag-region a,
-.drag-region [role="switch"],
-.drag-region [data-selectable],
-.drag-region [data-no-drag] {
-  -webkit-app-region: no-drag;
-}
-
 /* Scrollbar styling (T3 Code). */
 ::-webkit-scrollbar {
   width: var(--app-scrollbar-width);

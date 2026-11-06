@@ -35,20 +35,6 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
   const [extra, setExtra] = useState(0);
   // The notice and its separator only while there is something to undo.
   const undoActive = useUndoNotice() !== null;
-  // The gaps between messages drag the window too, unless the list scrolls: a drag region
-  // would swallow the mouse wheel.
-  const listRef = useRef<HTMLUListElement>(null);
-  const [scrollable, setScrollable] = useState(false);
-  useLayoutEffect(() => {
-    const el = listRef.current;
-    if (!el) return;
-    const measure = () => setScrollable(el.scrollHeight > el.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    for (const child of el.children) observer.observe(child);
-    return () => observer.disconnect();
-  });
   const base = mode === "session" ? history.filter((e) => sessionIds.includes(e.id)) : history.slice(0, PAGE);
   const rest = history.filter((e) => !base.includes(e));
   const shown = new Set([...base, ...rest.slice(0, extra)]);
@@ -61,7 +47,7 @@ export function HistoryPanel({ history, mode, sessionIds, showUndo, onCopy, onDe
         <p className="px-4 py-6 text-center text-muted-foreground text-xs">Your transcriptions will show up here.</p>
       ) : (
         <>
-          <ul ref={listRef} data-no-drag={scrollable || undefined} className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2">
+          <ul className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2">
             {visible.map((entry) => (
               <HistoryMessage key={entry.id} entry={entry} onCopy={onCopy} onDelete={onDelete} />
             ))}
@@ -183,7 +169,7 @@ function HistoryMessage({
       {turns ? (
         // A conversation: its recording on its own (as T3 shows an audio-only message), then each
         // turn as T3 shows a thread with a guest. Folded, the first few turns, 3 lines each.
-        <div ref={turnsRef} data-no-drag className="flex w-full flex-col items-end gap-3">
+        <div ref={turnsRef} className="flex w-full flex-col items-end gap-3">
           {audio && (
             <div
               dir={textDirection(turns.map((turn) => turn.text).join(" "))}

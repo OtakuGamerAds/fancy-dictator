@@ -22,6 +22,8 @@ contextBridge.exposeInMainWorld("api", {
   reportContentHeight: (height) => ipcRenderer.send("window:content-height", height),
   setHitRects: (rects) => ipcRenderer.send("window:hit-rects", rects),
   hide: () => ipcRenderer.send("window:hide"),
+  startDrag: () => ipcRenderer.send("window:drag-start"),
+  endDrag: () => ipcRenderer.send("window:drag-end"),
   suspendHotkey: () => ipcRenderer.send("hotkey:suspend"),
   resumeHotkey: () => ipcRenderer.send("hotkey:resume"),
   onHidden: listen("app:hidden"),

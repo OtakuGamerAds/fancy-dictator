@@ -62,6 +62,9 @@ export interface DesktopApi {
   /** The parts of the window that take the mouse (the card, open dropdowns); the rest clicks through. */
   setHitRects(rects: { x: number; y: number; width: number; height: number }[]): void;
   hide(): void;
+  /** Move the window with the mouse until endDrag (a press on an empty spot of the card). */
+  startDrag(): void;
+  endDrag(): void;
   suspendHotkey(): void;
   resumeHotkey(): void;
   onHidden(callback: () => void): () => void;

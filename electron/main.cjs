@@ -113,11 +113,7 @@ function createWindow() {
 
   // However the window gets hidden, a recording in progress is stopped and kept.
   win.on("hide", () => sendToWindow("app:hidden"));
-  win.on("moved", () => {
-    if (!windowAlive()) return;
-    const { x, y, width } = win.getBounds();
-    settings = store.saveSettings({ cardAnchor: { cx: Math.round(x + width / 2), y } });
-  });
+  win.on("moved", rememberPlace);
   win.on("close", (event) => {
     if (quitting) return;
     event.preventDefault();
@@ -189,6 +185,38 @@ function stopHitTesting() {
 }
 
 /** If the card would run past the bottom of the screen, move the window up just enough. */
+/** Where the card is, so it opens there next time. */
+function rememberPlace() {
+  if (!windowAlive()) return;
+  const { x, y, width } = win.getBounds();
+  settings = store.saveSettings({ cardAnchor: { cx: Math.round(x + width / 2), y } });
+}
+
+/**
+ * Dragging the card: the window follows the mouse from the press until the release. Its size
+ * is set with every move, since moving alone can change it by a pixel on scaled displays.
+ */
+let drag = null;
+function startDrag() {
+  if (!windowAlive() || drag) return;
+  const cursor = screen.getCursorScreenPoint();
+  const bounds = win.getBounds();
+  const follow = () => {
+    const now = screen.getCursorScreenPoint();
+    const x = bounds.x + now.x - cursor.x;
+    const y = bounds.y + now.y - cursor.y;
+    const current = win.getBounds();
+    if (current.x !== x || current.y !== y) win.setBounds({ x, y, width: current.width, height: current.height });
+  };
+  drag = setInterval(() => (windowAlive() ? follow() : endDrag()), 8);
+}
+function endDrag() {
+  if (!drag) return;
+  clearInterval(drag);
+  drag = null;
+  rememberPlace();
+}
+
 function keepOnScreen(contentHeight) {
   if (!windowAlive() || !Number.isFinite(contentHeight)) return;
   const bounds = win.getBounds();
@@ -385,6 +413,8 @@ function registerIpc() {
 
   ipcMain.handle("clipboard:write", (_e, text) => clipboard.writeText(String(text ?? "")));
   ipcMain.on("window:content-height", (_e, height) => keepOnScreen(Number(height)));
+  ipcMain.on("window:drag-start", startDrag);
+  ipcMain.on("window:drag-end", endDrag);
   ipcMain.on("window:hit-rects", (_e, rects) => {
     hitRects = Array.isArray(rects) ? rects : [];
     updateClickThrough();
