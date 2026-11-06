@@ -132,6 +132,62 @@ interface Lane {
 /** The voice of a Soniox speaker id in a stream (a stream without diarization is speaker 1). */
 export const voiceOf = (source: Source, speaker?: string): Voice => `${source}:${speaker || "1"}`;
 
+/** A word with its time, from a transcription of a recording that already exists (Replay). */
+export interface TimedWord {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  speaker?: string;
+}
+
+/** A pause this long within one voice starts a new turn. */
+const TURN_GAP_MS = 1500;
+
+/**
+ * The turns of a conversation transcribed after the fact, laid out as a live one would be:
+ * each stream's words in turns (a new one when another of its voices speaks, or after a pause),
+ * the turns in the order they started, the microphone's echo of the computer dropped, and two
+ * turns in a row of the same voice made one paragraph. 
+ */
+export function turnsFromWords(streams: { source: Source; words: TimedWord[] }[]): DialogueTurn[] {
+  type Spoken = { speaker: Voice; source: Source; start: number; end: number; text: string };
+  const spoken: Spoken[] = [];
+  for (const { source, words } of streams) {
+    let current: Spoken | null = null;
+    for (const word of words) {
+      const speaker = voiceOf(source, word.speaker);
+      if (!current || current.speaker !== speaker || word.start_ms - current.end > TURN_GAP_MS) {
+        if (current?.text.trim()) spoken.push(current);
+        current = { speaker, source, start: word.start_ms, end: word.end_ms, text: "" };
+      }
+      current.text += word.text;
+      current.end = word.end_ms;
+    }
+    if (current?.text.trim()) spoken.push(current);
+  }
+  const theirs = spoken.filter((s) => s.source === "computer");
+  const kept = spoken.filter(
+    (s) =>
+      s.source !== "mic" ||
+      !isEcho(
+        s.text,
+        theirs
+          .filter((t) => t.end >= s.start - ECHO_WINDOW_MS && t.start <= s.end + 1000)
+          .map((t) => t.text)
+          .join(" "),
+      ),
+  );
+  kept.sort((a, b) => a.start - b.start);
+  const turns: DialogueTurn[] = [];
+  for (const s of kept) {
+    const text = s.text.trim();
+    const last = turns.at(-1);
+    if (last && last.speaker === s.speaker) last.text = joinSpoken(last.text, text, false);
+    else turns.push({ id: newTurnId(), speaker: s.speaker, text });
+  }
+  return turns;
+}
+
 /** The dialogue while recording: one lane per Soniox stream feeds the turns of its voices. */
 export class Dialogue {
   turns: DialogueTurn[];
@@ -213,6 +269,11 @@ export class Dialogue {
       lane.open.start = Math.min(lane.open.start, text.length);
     }
     if (!open && !text.trim()) this.remove(id);
+  }
+
+  /** Turns said before this recording began (Replay's transcription), placed first. */
+  prepend(turns: DialogueTurn[]) {
+    this.turns.unshift(...turns.map((turn) => ({ ...turn })));
   }
 
   /** The turns as shown now, the still-unsettled words included. */

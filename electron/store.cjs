@@ -16,6 +16,8 @@ const DEFAULT_SETTINGS = {
   micDeviceId: "",
   languages: ["ar", "en"],
   runOnStartup: false,
+  // Replay: how many minutes of your mic and the computer's audio are kept to go back to (0: off).
+  replayMinutes: 0,
   cardAnchor: null,
 };
 

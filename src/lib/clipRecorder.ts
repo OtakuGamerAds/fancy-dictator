@@ -64,8 +64,19 @@ export class ClipRecorder {
   }
 }
 
+/** One recording's audio, a clip per source, ready to keep with its message once it ends. */
+export interface RecordedAudio {
+  stop(): Promise<{ source: AudioSource; webm: ArrayBuffer }[]>;
+  cancel(): void;
+}
+
+/** Audio already cut (Replay's), kept as a recording of the session. */
+export function recordedAudio(clips: { source: AudioSource; webm: ArrayBuffer }[]): RecordedAudio {
+  return { stop: async () => clips, cancel() {} };
+}
+
 /** One recording's audio: a clip for each source, kept apart. */
-export class RecordingAudio {
+export class RecordingAudio implements RecordedAudio {
   private clips: Record<AudioSource, ClipRecorder> = { mic: new ClipRecorder(), computer: new ClipRecorder() };
 
   add(source: AudioSource, stream: MediaStream) {

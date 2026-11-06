@@ -2,14 +2,18 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 
 import { Composer, type Phase } from "~/components/Composer";
 import { HistoryPanel } from "~/components/HistoryPanel";
+import { type ReplayRequest, ReplayView } from "~/components/ReplayView";
 import { SettingsView } from "~/components/SettingsView";
-import { RecordingAudio } from "~/lib/clipRecorder";
+import { type RecordedAudio, RecordingAudio, recordedAudio } from "~/lib/clipRecorder";
+import { cutClip } from "~/lib/replayAudio";
+import { ReplayBuffer } from "~/lib/replayBuffer";
 import {
   Dialogue,
   type DialogueBlock,
   type DialogueTurn,
   formatConversation,
   newTurnId,
+  turnsFromWords,
   type PendingRun,
   speakerName,
   type Turn,
@@ -23,11 +27,11 @@ import {
   type Speech,
   startSoniox,
 } from "~/lib/soniox";
-import type { HistoryEntry, Settings } from "~/lib/types";
+import type { HistoryEntry, ReplaySegment, Settings } from "~/lib/types";
 import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestAction } from "~/lib/undoNotice";
 import { joinSpoken } from "~/lib/utils";
 
-type View = "main" | "settings";
+type View = "main" | "settings" | "replay";
 
 /** One Soniox stream of the recording, from one source. */
 interface Lane {
@@ -203,7 +207,7 @@ export function App() {
 
   // The recordings made into the box and not yet saved with its message, each with a clip per
   // source it heard.
-  const boxClips = useRef<RecordingAudio[]>([]);
+  const boxClips = useRef<RecordedAudio[]>([]);
 
   /** The recording ended: its clip is finished (and kept, until the message is saved). */
   const endClip = () => void boxClips.current.at(-1)?.stop();
@@ -394,7 +398,7 @@ export function App() {
 
   /** Start listening. New words are appended to the text box unless `fresh` empties it first. */
   const startRecording = useCallback(
-    async (fresh = false, from: Exclude<ListenMode, "none"> = "mic") => {
+    async (fresh = false, from: Exclude<ListenMode, "none"> = "mic", asConversation = false) => {
       if (phaseRef.current !== "idle") return;
       const current = latest.current.settings;
       if (!current) return;
@@ -414,7 +418,7 @@ export function App() {
       const clip = new RecordingAudio();
       boxClips.current.push(clip);
       // Both sides, or a box that already holds a conversation: the words go into turns.
-      if (from === "both" || turnsRef.current) ensureDialogue();
+      if (from === "both" || turnsRef.current || asConversation) ensureDialogue();
       else plainSource.current = from;
       setPendingText("");
       setLevels(Array(LEVEL_BARS).fill(0));
@@ -472,7 +476,8 @@ export function App() {
         showDialogue();
       }
       const missing = want.filter((source) => !lanes.some((lane) => lane.source === source && !lane.leaving));
-      const added = await openLanes(missing, boxClips.current.at(-1));
+      const live = boxClips.current.at(-1); // this recording's (Replay's earlier part comes first)
+      const added = await openLanes(missing, live instanceof RecordingAudio ? live : undefined);
       if (phaseRef.current !== "recording") {
         for (const lane of added) lane.session?.cancel();
         return;
@@ -484,6 +489,114 @@ export function App() {
       setMode(previous); // could not open it: keep listening to what it was
     } finally {
       switching.current = false;
+    }
+  };
+
+  // ── Replay: the last minutes always recorded, to go back to ──
+
+  const replayRef = useRef<ReplayBuffer | null>(null);
+  const replayMinutes = settings?.replayMinutes ?? 0;
+  const micDeviceId = settings?.micDeviceId ?? "";
+  useEffect(() => {
+    if (!replayMinutes || new URLSearchParams(location.search).has("snapshot")) return;
+    let buffer: ReplayBuffer | null = null;
+    let stopped = false;
+    void ReplayBuffer.start(micDeviceId || undefined)
+      .then((started) => {
+        if (stopped) started.stop();
+        else replayRef.current = buffer = started;
+      })
+      .catch(() => {}); // neither source could be opened: Replay shows nothing recorded
+    return () => {
+      stopped = true;
+      buffer?.stop();
+      replayRef.current = null;
+    };
+  }, [replayMinutes, micDeviceId]);
+  // Turned off: what was kept is deleted.
+  useEffect(() => {
+    if (settings && !replayMinutes) void window.api.clearReplay();
+  }, [settings, replayMinutes]);
+
+  const [replayBusy, setReplayBusy] = useState(false);
+  const [replayError, setReplayError] = useState<string | null>(null);
+  // Replay's earlier part being transcribed ahead of a live recording ("Keep going live").
+  const pastRef = useRef<Promise<void> | null>(null);
+  const [pastPending, setPastPending] = useState(false);
+
+  /** Everything Replay recorded until now. */
+  const loadReplay = async () => {
+    await replayRef.current?.flush();
+    return window.api.listReplay();
+  };
+
+  /** Replay's part from `start` until `end`: a clip per source and the conversation in it. */
+  const transcribePast = async (start: number, end: number, sources: AudioSource[]) => {
+    const segments = await loadReplay();
+    const clips = (
+      await Promise.all(
+        sources.map(async (source) => ({
+          source,
+          webm: await cutClip(
+            segments.filter((s) => s.source === source),
+            start,
+            end,
+          ),
+        })),
+      )
+    ).filter((clip): clip is { source: AudioSource; webm: ArrayBuffer } => clip.webm !== null);
+    const streams = await Promise.all(
+      clips.map(async (clip) => ({ source: clip.source, words: await window.api.transcribeReplay(clip.webm) })),
+    );
+    return { clips, turns: turnsFromWords(streams) };
+  };
+
+  const transcribeReplay = async ({ start, mode: chosen, keepLive }: ReplayRequest) => {
+    const sources: AudioSource[] = chosen === "both" ? ["mic", "computer"] : chosen === "none" ? [] : [chosen];
+    if (sources.length === 0) return;
+    const end = Date.now();
+    setReplayError(null);
+    if (keepLive) {
+      // The live part starts now, as a conversation; the earlier part is put before it once
+      // Soniox has it (Stop waits for it).
+      setView("main");
+      setPastPending(true);
+      pastRef.current = transcribePast(start, end, sources)
+        .then(({ clips, turns }) => {
+          dialogueRef.current?.prepend(turns);
+          showDialogue();
+          if (clips.length) boxClips.current.unshift(recordedAudio(clips));
+        })
+        .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)))
+        .finally(() => {
+          setPastPending(false);
+          pastRef.current = null;
+        });
+      await startRecording(true, chosen as Exclude<ListenMode, "none">, true);
+      return;
+    }
+    setReplayBusy(true);
+    try {
+      const { clips, turns } = await transcribePast(start, end, sources);
+      const kept = savedTurns(turns);
+      if (kept.length === 0) throw new Error("No speech found in that part.");
+      const entry: HistoryEntry = {
+        id: crypto.randomUUID(),
+        text: formatConversation(kept),
+        turns: kept,
+        createdAt: start,
+        durationMs: end - start,
+      };
+      if (clips.length) await window.api.addAudioClips(entry.id, clips);
+      setHistory(await window.api.addHistory(entry));
+      // Shown below the box like any session that just ended.
+      setHistoryKey((key) => key + 1);
+      setHistoryOpen(true);
+      setView("main");
+    } catch (failure) {
+      setReplayError(failure instanceof Error ? failure.message : String(failure));
+    } finally {
+      setReplayBusy(false);
     }
   };
 
@@ -509,6 +622,8 @@ export function App() {
     if (phaseRef.current !== "recording") return null;
     const lanes = lanesRef.current; // none while both sources are muted
     setPhase("stopping");
+    // Replay's earlier part goes first: it is waited for.
+    await pastRef.current;
     const elapsed = Date.now() - latest.current.startedAt;
     // Soniox settles the last words; they arrive through each stream's onText.
     await Promise.all(lanes.map((lane) => lane.leaving ?? lane.session?.stop()));
@@ -759,6 +874,8 @@ export function App() {
               }}
               onMic={() => void startRecording()}
               onConversation={() => void startRecording(false, "both")}
+              onReplay={replayMinutes ? () => setView("replay") : undefined}
+              pastPending={pastPending}
               mode={mode}
               onSwitchMode={(next) => void switchMode(next)}
               onTurnEdit={(id, text) => {
@@ -798,6 +915,15 @@ export function App() {
             )}
           </>
         )}
+        {view === "replay" && (
+          <ReplayView
+            load={snapshotReplay ?? loadReplay}
+            busy={replayBusy}
+            error={replayError}
+            onBack={() => setView("main")}
+            onTranscribe={(request) => void transcribeReplay(request)}
+          />
+        )}
         {view === "settings" && settings && (
           <SettingsView
             settings={settings}
@@ -816,6 +942,25 @@ export function App() {
 }
 
 // ── Snapshot mode: `pnpm snapshot` renders every view to a PNG ───────────
+
+/** Replay's recording in snapshots: twelve minutes of made-up loudness, both sources. */
+const snapshotReplay = new URLSearchParams(location.search).has("snapshot")
+  ? async (): Promise<ReplaySegment[]> => {
+      const now = Date.now();
+      const segments: ReplaySegment[] = [];
+      for (const source of ["mic", "computer"] as const) {
+        for (let start = now - 12 * 60_000; start < now; start += 30_000) {
+          const levels = Array.from({ length: 120 }, (_, i) => {
+            const t = (start - now) / 1000 + i / 4;
+            const talking = Math.sin(t / (source === "mic" ? 23 : 17) + (source === "mic" ? 0 : 2)) > 0;
+            return talking ? 0.03 + 0.1 * Math.abs(Math.sin(t * 1.7)) : 0.003;
+          });
+          segments.push({ source, start, end: start + 30_000, file: `${source}.${start}.webm`, levels });
+        }
+      }
+      return segments;
+    }
+  : null;
 
 const SAMPLE_HISTORY: HistoryEntry[] = [
   { id: "1", text: "مرحبا، بدي اكتب رسالة سريعة لفريق العمل", createdAt: Date.now() - 2 * 60000, durationMs: 18000, audioClips: 2 },
@@ -1039,6 +1184,61 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   return steps;
 }
 
+/**
+ * `pnpm probe`: Replay records both sources for a few seconds (the probe's own settings), and a
+ * part of it is cut into one clip per source, which must decode to the length asked for.
+ */
+async function probeReplay() {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  await window.api.saveSettings({ replayMinutes: 5 });
+  const buffer = await ReplayBuffer.start();
+  const began = Date.now();
+  await wait(4000);
+  await buffer.flush();
+  const segments = await window.api.listReplay();
+  buffer.stop();
+  const from = began + 1000;
+  const to = Date.now() - 500;
+  const decoder = new OfflineAudioContext(1, 1, 48_000);
+  const clips: Record<string, unknown> = {};
+  for (const source of ["mic", "computer"] as const) {
+    const webm = await cutClip(
+      segments.filter((s) => s.source === source),
+      from,
+      to,
+    );
+    clips[source] = webm ? { bytes: webm.byteLength, seconds: (await decoder.decodeAudioData(webm)).duration } : null;
+  }
+  await window.api.clearReplay();
+  // Words as Soniox's async API gives them, laid out as a live conversation would be: they
+  // cut in while you talk (after your turn), a second voice on the call, and your mic's echo
+  // of them (dropped).
+  const turns = turnsFromWords([
+    {
+      source: "mic",
+      words: [
+        { text: "Hello", start_ms: 0, end_ms: 400, speaker: "1" },
+        { text: " there, how are you?", start_ms: 450, end_ms: 1800, speaker: "1" },
+        { text: "me too", start_ms: 5100, end_ms: 5500, speaker: "2" },
+      ],
+    },
+    {
+      source: "computer",
+      words: [
+        { text: "Hi!", start_ms: 900, end_ms: 1200, speaker: "1" },
+        { text: " Fine, thanks.", start_ms: 2200, end_ms: 3000, speaker: "1" },
+        { text: "Me too.", start_ms: 5000, end_ms: 5400, speaker: "2" },
+      ],
+    },
+  ]);
+  return {
+    turns: formatConversation(turns),
+    pieces: segments.map((s) => ({ source: s.source, ms: s.end - s.start, levels: s.levels.length })),
+    asked: (to - from) / 1000,
+    clips,
+  };
+}
+
 interface SnapshotSetters {
   setView(v: View): void;
   setHistoryOpen(v: boolean): void;
@@ -1068,6 +1268,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
       sonioxModel: "latest",
       hotkey: "Control+Alt+Space",
       micDeviceId: "",
+      replayMinutes: 60,
       languages: ["ar", "en"],
       runOnStartup: false,
     };
@@ -1230,6 +1431,11 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setView("main");
         x.setText("مرحبا كيفك");
       },
+      // Replay, twelve minutes kept (made-up loudness).
+      "9b-replay": (x) => {
+        x.setText("");
+        x.setView("replay");
+      },
     };
     window.__fdSnapshot = {
       // `pnpm probe`: checks mic → worklet → Soniox socket with a fake key; expects a 401 error.
@@ -1272,7 +1478,13 @@ function useSnapshotHooks(s: SnapshotSetters) {
         } catch (e) {
           events.push(`start-failed:${describeStartError(e)}`);
         }
-        return { events, levelMessages, heard, conversation: await probeConversation(setters.current, demoSettings) };
+        return {
+          events,
+          levelMessages,
+          heard,
+          conversation: await probeConversation(setters.current, demoSettings),
+          replay: await probeReplay(),
+        };
       },
       views: () => Object.keys(scenes),
       apply: (name) => scenes[name]?.(setters.current),

@@ -25,6 +25,8 @@ const store = require("./store.cjs");
 const updater = require("./updater.cjs");
 const models = require("./models.cjs");
 const audio = require("./audio.cjs");
+const replay = require("./replay.cjs");
+const sonioxAsync = require("./sonioxAsync.cjs");
 
 /**
  * The window never changes size: resizing a transparent window makes Windows flash the old
@@ -359,6 +361,7 @@ function sanitize(patch) {
   if (typeof patch.micDeviceId === "string") out.micDeviceId = patch.micDeviceId;
   if (Array.isArray(patch.languages)) out.languages = patch.languages.filter((l) => typeof l === "string");
   if (typeof patch.runOnStartup === "boolean") out.runOnStartup = patch.runOnStartup;
+  if (Number.isFinite(patch.replayMinutes)) out.replayMinutes = Math.min(60, Math.max(0, Math.round(patch.replayMinutes)));
   return out;
 }
 
@@ -404,6 +407,16 @@ function registerIpc() {
   ipcMain.handle("history:clear", () => withAudio(store.clearHistory()));
   ipcMain.handle("history:replace", (_e, entries) => withAudio(store.replaceHistory(entries)));
   ipcMain.handle("audio:add-clips", (_e, id, clips) => audio.addRecording(id, clips));
+  // Replay's pieces, kept for as long as Settings says; and a part of them transcribed.
+  const replayKeepMs = () => Math.max(0, Number(settings.replayMinutes) || 0) * 60_000;
+  ipcMain.handle("replay:add-segment", (_e, segment) => replay.addSegment(segment, replayKeepMs()));
+  ipcMain.handle("replay:list", () => {
+    replay.prune(replayKeepMs());
+    return replay.list();
+  });
+  ipcMain.handle("replay:read", (_e, file) => replay.read(file));
+  ipcMain.handle("replay:clear", () => replay.clear());
+  ipcMain.handle("replay:transcribe", (_e, webm) => sonioxAsync.transcribe(settings.sonioxApiKey, webm, settings.languages));
   // Deleted messages can no longer be brought back: erase their audio, unless one was restored.
   ipcMain.handle("audio:discard", (_e, ids) => {
     const history = store.getHistory();
@@ -620,7 +633,8 @@ protocol.registerSchemesAsPrivileged([
 
 function serveAudio() {
   protocol.handle("fd-audio", (request) => {
-    const [id = "", position = ""] = new URL(request.url).pathname.split("/").filter(Boolean).map(decodeURIComponent);
+    const url = new URL(request.url);
+    const [id = "", position = ""] = url.pathname.split("/").filter(Boolean).map(decodeURIComponent);
     const index = Number(position);
     if (!Number.isInteger(index) || index < 0) return new Response(null, { status: 404 });
     // Snapshots play a made-up tone for their sample messages; the probe's recordings are real.
@@ -653,6 +667,7 @@ if (!SNAPSHOT && !app.requestSingleInstanceLock()) {
   app.whenReady().then(() => {
     settings = store.getSettings();
     if (!SNAPSHOT) audio.prune(store.getHistory().map((entry) => entry.id));
+    replay.clear(); // Replay keeps nothing from before the app started
     session.defaultSession.setPermissionRequestHandler((_wc, permission, callback) => {
       callback(permission === "media" || permission === "clipboard-sanitized-write");
     });

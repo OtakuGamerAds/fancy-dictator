@@ -125,7 +125,7 @@ async function openComputerAudio(): Promise<MediaStream> {
   return stream;
 }
 
-function openSource(source: AudioSource, deviceId?: string): Promise<MediaStream> {
+export function openSource(source: AudioSource, deviceId?: string): Promise<MediaStream> {
   return source === "computer" ? openComputerAudio() : openMicrophone(deviceId);
 }
 

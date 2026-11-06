@@ -1,4 +1,5 @@
 import {
+  HistoryIcon,
   MicOffIcon,
   ChevronDownIcon,
   LoaderCircleIcon,
@@ -41,6 +42,10 @@ interface ComposerProps {
   historyOpen: boolean;
   /** How many messages there are; with none, the history arrow is disabled. */
   historyCount: number;
+  /** Replay is on: the empty box offers to go back in time. */
+  onReplay?: () => void;
+  /** Replay's earlier part is being transcribed, ahead of this live recording. */
+  pastPending?: boolean;
   onTextChange(text: string): void;
   onMic(): void;
   /** Start listening to the computer's audio instead: someone you are talking to. */
@@ -102,7 +107,7 @@ export function Composer(props: ComposerProps) {
  * The empty box is one big talk button. The language picker and the undo notice inside it
  * keep their own clicks (they stop the click from reaching the box).
  */
-function TalkSurface({ error, languages, onMic, onConversation, onLanguagesChange }: ComposerProps) {
+function TalkSurface({ error, languages, onMic, onConversation, onReplay, onLanguagesChange }: ComposerProps) {
   return (
     <div
       role="button"
@@ -145,6 +150,22 @@ function TalkSurface({ error, languages, onMic, onConversation, onLanguagesChang
             <UsersIcon />
             conversation
           </Button>
+          {onReplay && (
+            <Button
+              variant="outline"
+              size="xs"
+              className="rounded-full before:rounded-full"
+              title="Go back in time: transcribe what was said in the last minutes"
+              onClick={(event) => {
+                event.stopPropagation();
+                onReplay();
+              }}
+              onKeyDown={(event) => event.stopPropagation()}
+            >
+              <HistoryIcon />
+              replay
+            </Button>
+          )}
         </span>
       </div>
       <div className="flex min-h-8 items-center justify-between gap-2 px-1.5 pb-1.5">
@@ -180,9 +201,49 @@ function EditRow({ languages, onMic, onLanguagesChange }: ComposerProps) {
 }
 
 /** While recording: the timer and the wave, and Stop. */
-function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: ComposerProps) {
+/**
+ * Your microphone and the computer's audio, each on or muted on its own (T3's segmented toggle,
+ * both can be on): red while muted. Used while recording, and to pick what Replay transcribes.
+ */
+export function SourceToggles({
+  mode,
+  disabled,
+  onChange,
+}: {
+  mode: ListenMode;
+  disabled?: boolean;
+  onChange(mode: ListenMode): void;
+}) {
   const micOn = mode === "mic" || mode === "both";
   const computerOn = mode === "computer" || mode === "both";
+  return (
+    <ToggleGroup
+      aria-label="Listen to"
+      variant="segmented"
+      multiple
+      value={[...(micOn ? ["mic"] : []), ...(computerOn ? ["computer"] : [])]}
+      disabled={disabled}
+      onValueChange={(value) => {
+        const mic = value.includes("mic");
+        const computer = value.includes("computer");
+        onChange(mic && computer ? "both" : mic ? "mic" : computer ? "computer" : "none");
+      }}
+    >
+      <Toggle aria-label="Your microphone" title={micOn ? "Mute your microphone" : "Unmute your microphone"} value="mic">
+        {micOn ? <MicIcon className="size-3.5" /> : <MicOffIcon className="size-3.5 text-error-foreground" />}
+      </Toggle>
+      <Toggle
+        aria-label="The computer's audio"
+        title={computerOn ? "Mute the computer's audio" : "Unmute the computer's audio (a conversation)"}
+        value="computer"
+      >
+        <MonitorSpeakerIcon className={cn("size-3.5", !computerOn && "text-error-foreground")} />
+      </Toggle>
+    </ToggleGroup>
+  );
+}
+
+function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: ComposerProps) {
   return (
     <>
       <span className="flex items-center gap-2 ps-2 text-muted-foreground text-xs tabular-nums">
@@ -191,36 +252,9 @@ function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: 
         <Waveform levels={levels} className="ms-1" />
       </span>
       <div className="flex items-center gap-2">
-        {/* What is heard, each muted on its own without stopping (T3's segmented toggle, both
-            can be on): red while muted. The computer's audio makes it a conversation; both
-            muted pauses the recording. */}
-        <ToggleGroup
-          aria-label="Listen to"
-          variant="segmented"
-          multiple
-          value={[...(micOn ? ["mic"] : []), ...(computerOn ? ["computer"] : [])]}
-          disabled={phase !== "recording"}
-          onValueChange={(value) => {
-            const mic = value.includes("mic");
-            const computer = value.includes("computer");
-            onSwitchMode(mic && computer ? "both" : mic ? "mic" : computer ? "computer" : "none");
-          }}
-        >
-          <Toggle
-            aria-label="Your microphone"
-            title={micOn ? "Mute your microphone" : "Unmute your microphone"}
-            value="mic"
-          >
-            {micOn ? <MicIcon className="size-3.5" /> : <MicOffIcon className="size-3.5 text-error-foreground" />}
-          </Toggle>
-          <Toggle
-            aria-label="The computer's audio"
-            title={computerOn ? "Mute the computer's audio" : "Unmute the computer's audio (a conversation)"}
-            value="computer"
-          >
-            <MonitorSpeakerIcon className={cn("size-3.5", !computerOn && "text-error-foreground")} />
-          </Toggle>
-        </ToggleGroup>
+        {/* What is heard, each muted on its own without stopping: the computer's audio makes it
+            a conversation; both muted pauses the recording. */}
+        <SourceToggles mode={mode} disabled={phase !== "recording"} onChange={onSwitchMode} />
         <Button variant="outline" size="sm" className="h-8 rounded-full px-3 before:rounded-full sm:h-7" disabled={phase === "stopping"} onClick={onStop}>
           {phase === "stopping" ? <LoaderCircleIcon className="animate-spin" /> : <SquareIcon className="size-2.5 fill-current" />}
           Stop
@@ -323,7 +357,7 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
  * A conversation, as T3 Code shows a thread with a guest: each speaker in a bubble of their own
  * color (ConversationTurn). Read-only, like messages.
  */
-function DialogueText({ phase, dialogue, onTurnEdit }: ComposerProps & { dialogue: DialogueBlock[] }) {
+function DialogueText({ phase, dialogue, pastPending, onTurnEdit }: ComposerProps & { dialogue: DialogueBlock[] }) {
   const numbers = speakerNumbers(dialogue);
   const listening = phase !== "idle";
   const scrollRef = useRef<HTMLDivElement>(null);
@@ -334,6 +368,12 @@ function DialogueText({ phase, dialogue, onTurnEdit }: ComposerProps & { dialogu
   }, [dialogue, listening]);
   return (
     <div ref={scrollRef} className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1">
+      {pastPending && (
+        <p className="pb-2 text-center text-placeholder text-sm">
+          Transcribing the earlier part
+          <AnimatedDots />
+        </p>
+      )}
       {dialogue.length === 0 ? (
         <div className={cn(FIELD_TEXT, "min-h-[1lh] text-center")}>
           {listening && (
@@ -363,7 +403,7 @@ function DialogueText({ phase, dialogue, onTurnEdit }: ComposerProps & { dialogu
 }
 
 /** ".", "..", "...", repeating. Always three dots wide, so the centered word never shifts. */
-function AnimatedDots() {
+export function AnimatedDots() {
   const [count, setCount] = useState(1);
   useEffect(() => {
     const timer = setInterval(() => setCount((n) => (n % 3) + 1), 400);

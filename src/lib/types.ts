@@ -10,6 +10,28 @@ export interface Settings {
   micDeviceId: string;
   languages: string[];
   runOnStartup: boolean;
+  /** Replay: how many minutes of your mic and the computer's audio are kept to go back to (0: off). */
+  replayMinutes: number;
+}
+
+/** A piece of Replay's recording (about half a minute of one source). */
+export interface ReplaySegment {
+  source: "mic" | "computer";
+  /** When it starts and ends (ms since 1970). */
+  start: number;
+  end: number;
+  /** Its name in Replay's folder (read with readReplay). */
+  file: string;
+  /** Its loudness every quarter second, 0–1. */
+  levels: number[];
+}
+
+/** A word of an async transcription. */
+export interface TimedToken {
+  text: string;
+  start_ms: number;
+  end_ms: number;
+  speaker?: string;
 }
 
 export interface HistoryEntry {
@@ -55,6 +77,12 @@ export interface DesktopApi {
   replaceHistory(entries: HistoryEntry[]): Promise<HistoryEntry[]>;
   /** Save one recording's audio, a WebM clip per source, as the message's next recording. */
   addAudioClips(id: string, clips: { source: "mic" | "computer"; webm: ArrayBuffer }[]): Promise<boolean>;
+  /** Replay: keep a piece of the recording; what is kept; forget it all; transcribe a part. */
+  addReplaySegment(segment: Omit<ReplaySegment, "file"> & { webm: ArrayBuffer }): Promise<void>;
+  listReplay(): Promise<ReplaySegment[]>;
+  readReplay(file: string): Promise<Uint8Array | null>;
+  clearReplay(): Promise<void>;
+  transcribeReplay(webm: ArrayBuffer): Promise<TimedToken[]>;
   /** Erase the audio of deleted messages (any that are back in the history are kept). */
   discardAudio(ids: string[]): Promise<void>;
   copy(text: string): Promise<void>;

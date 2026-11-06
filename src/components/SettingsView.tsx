@@ -1,4 +1,4 @@
-import { ChevronLeftIcon, EyeIcon, EyeOffIcon, RefreshCwIcon } from "lucide-react";
+import { EyeIcon, EyeOffIcon, RefreshCwIcon } from "lucide-react";
 import { useCallback, useEffect, useState } from "react";
 
 import { type ModelList, ModelPicker } from "~/components/ModelPicker";
@@ -7,6 +7,7 @@ import { Input } from "~/components/ui/input";
 import { Kbd, KbdGroup } from "~/components/ui/kbd";
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { Switch } from "~/components/ui/switch";
+import { ViewHeader } from "~/components/ViewHeader";
 import { SCROLL_LIST } from "~/lib/selectStyles";
 import type { Settings } from "~/lib/types";
 import { cn } from "~/lib/utils";
@@ -17,6 +18,15 @@ interface SettingsViewProps {
   onBack(): void;
   onSaved(settings: Settings): void;
 }
+
+/** How much Replay keeps. */
+const REPLAY_CHOICES: Record<string, string> = {
+  "0": "Off",
+  "5": "Last 5 minutes",
+  "15": "Last 15 minutes",
+  "30": "Last 30 minutes",
+  "60": "Last hour",
+};
 
 /** Base UI Select needs a non-empty value for "System default". */
 const DEFAULT_MIC = "default";
@@ -103,12 +113,7 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
 
   return (
     <div>
-      <div className="relative flex h-11 items-center justify-center px-2">
-        <Button variant="ghost-muted" size="icon-sm" className="absolute start-2" aria-label="Back" onClick={onBack}>
-          <ChevronLeftIcon />
-        </Button>
-        <h1 className="font-semibold text-foreground text-sm">Settings</h1>
-      </div>
+      <ViewHeader title="Settings" onBack={onBack} />
 
       {notice && (
         <div className="mx-4 mb-1 rounded-lg border border-warning/32 bg-warning-surface px-3 py-2 text-warning-foreground text-xs">
@@ -206,6 +211,25 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
               <RefreshCwIcon className={cn(loadingDevices && "animate-spin")} />
             </Button>
           </div>
+        </Row>
+
+        <Row label="Replay" description="Keeps your mic and the computer's audio on this device, to transcribe later">
+          <Select
+            items={REPLAY_CHOICES}
+            value={String(draft.replayMinutes)}
+            onValueChange={(value) => update("replayMinutes", Number(value) || 0)}
+          >
+            <SelectTrigger size="sm" className="min-w-0 flex-1 ps-7">
+              <SelectValue className="text-center" />
+            </SelectTrigger>
+            <SelectPopup side="bottom" alignItemWithTrigger={false} className={SCROLL_LIST}>
+              {Object.entries(REPLAY_CHOICES).map(([value, label]) => (
+                <SelectItem key={value} value={value}>
+                  {label}
+                </SelectItem>
+              ))}
+            </SelectPopup>
+          </Select>
         </Row>
 
         <Row label="Run on startup" description="Works in the installed app" inline>
