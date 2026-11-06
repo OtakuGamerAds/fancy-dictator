@@ -17,7 +17,7 @@ import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
 import { useUndoNotice } from "~/lib/undoNotice";
 import type { HistoryEntry } from "~/lib/types";
-import { cn, formatAgo, formatDuration, formatWhen, textDirection } from "~/lib/utils";
+import { cn, formatWhen, textDirection } from "~/lib/utils";
 
 interface HistoryPanelProps {
   history: HistoryEntry[];
@@ -53,17 +53,9 @@ export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onCl
       ) : (
         <>
           <ul className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2">
-            <HistoryMessage key={entry.id} entry={entry} onCopy={onCopy} onEdit={onEdit} onDelete={onDelete} />
+            <HistoryMessage key={entry.id} entry={entry} onEdit={onEdit} />
           </ul>
-          <div className="flex items-center justify-center gap-1 pt-1">
-            {/* A size container needs a definite width, or it collapses to nothing. */}
-            {showUndo && undoActive && (
-              <>
-                {/* Packed to the right (row-reverse + justify-start), next to the separator. */}
-                <UndoNotice className="w-48 justify-start" />
-                <span className="text-muted-foreground/60 text-xs">·</span>
-              </>
-            )}
+          <div className="flex items-center gap-1 px-2 pt-1">
             {/* Older on the left, newer on the right; the session itself picked in between. */}
             <Button
               variant="ghost-muted"
@@ -82,8 +74,19 @@ export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onCl
               title="Pick a session"
               ariaLabel="Session"
               side="top"
-              align="center"
+              align="start"
               onChange={setSelectedId}
+              footer={
+                // Every session at once: rare and not to be hit by mistake, so not on the bar.
+                <button
+                  type="button"
+                  className="flex min-h-8 w-full cursor-pointer items-center gap-2 rounded-sm px-2 py-1 text-destructive-foreground text-base outline-none hover:bg-accent sm:min-h-7 sm:text-sm"
+                  onClick={onClear}
+                >
+                  <Trash2Icon className="size-4" />
+                  Clear all sessions
+                </button>
+              }
             />
             <Button
               variant="ghost-muted"
@@ -95,10 +98,11 @@ export function HistoryPanel({ history, showUndo, onCopy, onEdit, onDelete, onCl
             >
               <ChevronRightIcon />
             </Button>
-            <span className="text-muted-foreground/60 text-xs">·</span>
-            <Button variant="ghost-muted" size="xs" onClick={onClear}>
-              Clear all
-            </Button>
+            {/* A size container needs a definite width, or it collapses to nothing. */}
+            <span className="flex min-w-0 flex-1 justify-center">
+              {showUndo && undoActive && <UndoNotice className="w-40 justify-center" />}
+            </span>
+            <SessionActions entry={entry} onCopy={onCopy} onDelete={onDelete} />
           </div>
         </>
       )}
@@ -128,23 +132,17 @@ function clipName(entry: HistoryEntry, clip: number): string {
 
 function HistoryMessage({
   entry,
-  onCopy,
   onEdit,
-  onDelete,
 }: {
   entry: HistoryEntry;
-  onCopy(text: string): Promise<void>;
   onEdit(entry: HistoryEntry): void;
-  onDelete(id: string): void;
 }) {
-  const [copied, setCopied] = useState(false);
   // Long messages show 3 lines and a "Show more" link, like a post on social media.
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
   const turns = entry.turns?.length ? entry.turns : null;
   const numbers = turns && speakerNumbers(turns);
-  const copyText = (text: string) => void onCopy(text).then(() => setCopied(true));
   // A turn edited: the written-out conversation (what Copy takes) follows the turns.
   const editTurn = (index: number, text: string) => {
     if (!turns) return;
@@ -162,12 +160,6 @@ function HistoryMessage({
     observer.observe(el);
     return () => observer.disconnect();
   }, [entry.text, expanded]);
-
-  useEffect(() => {
-    if (!copied) return;
-    const timer = setTimeout(() => setCopied(false), 1500);
-    return () => clearTimeout(timer);
-  }, [copied]);
 
   // The voice it was dictated with, one clip per recording, above the text, as T3 lists the
   // audio sent with a message.
@@ -189,7 +181,7 @@ function HistoryMessage({
   );
 
   return (
-    <li className="group flex flex-col items-end">
+    <li className="flex flex-col items-end">
       {turns ? (
         // A conversation: its recording on its own (as T3 shows an audio-only message), then each
         // turn as T3 shows a thread with a guest, each folded to 3 lines with its own "Show more".
@@ -238,47 +230,62 @@ function HistoryMessage({
           {showMore}
         </div>
       )}
-      <div className="mt-1 flex h-6 items-center gap-0.5 pe-1 text-muted-foreground text-xs">
-        <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100 has-data-popup-open:opacity-100">
-          {turns && numbers ? (
-            // A conversation: all of it, or one speaker's words (T3's menu).
-            <Menu>
-              <MenuTrigger render={<Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" />}>
-                {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
-              </MenuTrigger>
-              <MenuPopup align="end">
-                <MenuItem onClick={() => copyText(entry.text)}>
-                  <span aria-hidden className="w-3 shrink-0" />
-                  Copy conversation
-                </MenuItem>
-                {[...numbers.values()].map((number) => (
-                  <MenuItem key={number} onClick={() => copyText(speakerText(turns, number))}>
-                    {/* The speaker's bubble color, as a legend swatch (T3's telemetry legend). */}
-                    <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerColors(number).hue)} />
-                    Copy {speakerName(number)} only
-                  </MenuItem>
-                ))}
-              </MenuPopup>
-            </Menu>
-          ) : (
-            <Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" onClick={() => copyText(entry.text)}>
-              {copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />}
-            </Button>
-          )}
-          <Button
-            variant="ghost-destructive"
-            size="icon-xs"
-            aria-label="Delete"
-            title="Delete"
-            onClick={() => onDelete(entry.id)}
-          >
-            <Trash2Icon />
-          </Button>
-        </div>
-        <span className="ps-1 tabular-nums">
-          {formatAgo(entry.createdAt)} · {formatDuration(entry.durationMs)}
-        </span>
-      </div>
     </li>
+  );
+}
+
+/**
+ * The shown session's actions, on the bar under it: copy (a conversation's offers one speaker
+ * only, in T3's menu) and delete.
+ */
+function SessionActions({
+  entry,
+  onCopy,
+  onDelete,
+}: {
+  entry: HistoryEntry;
+  onCopy(text: string): Promise<void>;
+  onDelete(id: string): void;
+}) {
+  const [copied, setCopied] = useState(false);
+  useEffect(() => {
+    if (!copied) return;
+    const timer = setTimeout(() => setCopied(false), 1500);
+    return () => clearTimeout(timer);
+  }, [copied]);
+  const copyText = (text: string) => void onCopy(text).then(() => setCopied(true));
+  const turns = entry.turns?.length ? entry.turns : null;
+  const numbers = turns && speakerNumbers(turns);
+  const icon = copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />;
+  return (
+    <div className="flex items-center gap-0.5">
+      {turns && numbers ? (
+        <Menu>
+          <MenuTrigger render={<Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" />}>
+            {icon}
+          </MenuTrigger>
+          <MenuPopup side="top" align="end">
+            <MenuItem onClick={() => copyText(entry.text)}>
+              <span aria-hidden className="w-3 shrink-0" />
+              Copy conversation
+            </MenuItem>
+            {[...numbers.values()].map((number) => (
+              <MenuItem key={number} onClick={() => copyText(speakerText(turns, number))}>
+                {/* The speaker's bubble color, as a legend swatch (T3's telemetry legend). */}
+                <span aria-hidden className={cn("h-1.5 w-3 shrink-0 rounded-full", speakerColors(number).hue)} />
+                Copy {speakerName(number)} only
+              </MenuItem>
+            ))}
+          </MenuPopup>
+        </Menu>
+      ) : (
+        <Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" onClick={() => copyText(entry.text)}>
+          {icon}
+        </Button>
+      )}
+      <Button variant="ghost-destructive" size="icon-xs" aria-label="Delete" title="Delete" onClick={() => onDelete(entry.id)}>
+        <Trash2Icon />
+      </Button>
+    </div>
   );
 }

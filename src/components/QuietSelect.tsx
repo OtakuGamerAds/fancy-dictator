@@ -1,5 +1,6 @@
 import { Select as SelectPrimitive } from "@base-ui/react/select";
 import { CheckIcon } from "lucide-react";
+import type { ReactNode } from "react";
 
 import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "~/components/ui/select";
 import { SCROLL_LIST } from "~/lib/selectStyles";
@@ -18,6 +19,8 @@ type QuietSelectProps = {
   side?: "bottom" | "top";
   align?: "start" | "center" | "end";
   className?: string;
+  /** Under the choices, after a separator: an action on all of them. */
+  footer?: ReactNode;
 } & ({ multiple: true; value: string[]; onChange(value: string[]): void } | { multiple?: false; value: string; onChange(value: string): void });
 
 /**
@@ -25,7 +28,7 @@ type QuietSelectProps = {
  * picker beside the send button. The languages and the sessions are both picked with it.
  */
 export function QuietSelect(props: QuietSelectProps) {
-  const { items, label, title, ariaLabel, disabled, side = "bottom", align = "end", className } = props;
+  const { items, label, title, ariaLabel, disabled, side = "bottom", align = "end", className, footer } = props;
   return (
     <Select
       multiple={props.multiple}
@@ -53,6 +56,13 @@ export function QuietSelect(props: QuietSelectProps) {
             </span>
           </SelectItem>
         ))}
+        {footer && (
+          <>
+            {/* T3's MenuSeparator. */}
+            <div role="separator" className="mx-2 my-1 h-px bg-border" />
+            {footer}
+          </>
+        )}
       </SelectPopup>
     </Select>
   );

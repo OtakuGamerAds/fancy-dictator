@@ -24,7 +24,9 @@ Copy the text, or send it to your recent messages.
   moves below the box, which is empty for the next one. Below the box is one session at a
   time, the latest; the arrows under it, or the list between them (each session named by when
   it was recorded), show another. A new recording hides it until it ends. Hiding the window ends a session too.
-- Copy a session with the copy icon on it (a conversation's offers one speaker only too).
+- The bar under the session: the sessions on the left, and the shown one's copy (a
+  conversation's offers one speaker only too) and delete on the right. **Clear all sessions**
+  is at the end of the sessions' list.
   Click into any bubble's text to edit it; it is saved when you click away.
 - Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"
   adds the next): press ▶ on one to listen again, and click along it to jump there.
