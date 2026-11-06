@@ -13,6 +13,12 @@ const { app } = require("electron");
 const { autoUpdater } = require("electron-updater");
 
 const POLL_INTERVAL_MS = 4 * 60 * 1000;
+/**
+ * Where to look for a new version: the latest release's own files, which change the moment it
+ * is published. (The "github" provider, T3's, reads the releases feed, which GitHub refreshes
+ * minutes later.) Releases are still published to GitHub as before.
+ */
+const FEED_URL = "https://github.com/OtakuGamerAds/fancy-dictator/releases/latest/download";
 const STARTUP_DELAY_MS = 10 * 1000;
 
 let state = {
@@ -119,6 +125,7 @@ function install(beforeQuit) {
 function init(onState) {
   notify = onState;
   if (!app.isPackaged) return;
+  autoUpdater.setFeedURL({ provider: "generic", url: FEED_URL });
   autoUpdater.autoDownload = false;
   autoUpdater.autoInstallOnAppQuit = false;
   wireEvents();

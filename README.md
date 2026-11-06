@@ -6,10 +6,10 @@ Copy the text, or send it to your recent messages.
 - `Ctrl+Alt+Space` opens the window and starts recording; pressed again it stops the
   recording, or hides the window when nothing is recording.
 - The empty box is the talk button: click anywhere in it to start the mic.
-- **dictate others** listens to what the computer is playing instead (the person you're on a
-  call with). While recording, the mic / conversation / computer switch next to **Stop**
-  changes it live.
-- **conversation** listens to both, each as its own Soniox stream (twice the cost while it
+- **conversation** listens to the computer's audio too (the people on a call, a video). While
+  recording, the mic and computer buttons next to **Stop** change it live: turning the computer
+  on makes it a conversation, and the mic can be muted in one (one of them stays on; **Stop**
+  ends). A conversation listens to both, each as its own Soniox stream (twice the cost while it
   runs), and writes a dialogue the way T3 Code shows a thread with a guest. Soniox also tells
   the voices of each stream apart, so two people on the call (or at your mic) are two
   speakers (up to 15 on each side). Speakers are numbered in the order they first spoke; each
@@ -37,7 +37,8 @@ Like T3 Code:
 - **Install:** download `Fancy-Dictator-Setup-x.y.z.exe` from
   [Releases](https://github.com/OtakuGamerAds/fancy-dictator/releases/latest) and run it. It
   installs for your user only (no admin), adds a Start menu shortcut, and starts the app.
-- **Update:** the app checks for a new version at startup and every 4 minutes. When there is
+- **Update:** the app checks for a new version at startup and every 4 minutes (it reads the
+  latest release's files, so a new version shows up as soon as it is published). When there is
   one, an update button appears beside Settings: click to download (a ring shows progress),
   click again to restart into the new version.
 - **Uninstall:** Windows Settings → Apps → Fancy Dictator → Uninstall. It also removes your

@@ -464,15 +464,6 @@ export function App() {
     setMode(next);
     try {
       const lanes = lanesRef.current;
-      if (!dialogueRef.current && next !== "both") {
-        // Plain text: the one stream keeps going and listens to the other source from now on.
-        const lane = lanes[0];
-        if (!lane?.session) return;
-        await lane.session.setSource(next);
-        lane.source = next;
-        plainSource.current = next;
-        return;
-      }
       if (!dialogueRef.current) {
         // Becoming a conversation: the text so far is the first turn, and the stream already
         // running carries on in it as its speaker.
@@ -749,7 +740,6 @@ export function App() {
                 writeText(value);
               }}
               onMic={() => void startRecording()}
-              onDictateOthers={() => void startRecording(false, "computer")}
               onConversation={() => void startRecording(false, "both")}
               mode={mode}
               onSwitchMode={(next) => void switchMode(next)}
@@ -936,15 +926,25 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   steps.secondVoice = box();
   await say("computer", "Welcome!", "", true, "1");
   steps.secondVoiceSettled = box();
-  // 3. Switch to your microphone only: their stream settles and closes.
+  // 3. The computer's audio off: their stream settles and closes.
   const computerBefore = sockets.computer;
-  await click('[aria-label="Your microphone"]');
+  await click(`[aria-label="The computer's audio"]`);
   steps.computerEnded = computerBefore?.ended;
+  // The only source left cannot be turned off.
+  await click('[aria-label="Your microphone"]');
+  steps.micAlone = { pressed: document.querySelector('[aria-label="Your microphone"]')?.hasAttribute("data-pressed"), recording: !!sockets.mic && !sockets.mic.ended };
   await say("mic", "Just me now.", "", true);
-  // 4. And back to both: a new stream for them.
-  await click('[aria-label="Conversation"]');
+  // 4. And back on: a new stream for them.
+  await click(`[aria-label="The computer's audio"]`);
   steps.newComputerSocket = sockets.computer !== computerBefore;
   await say("computer", "Back again.", "", true);
+  // 4b. Your microphone muted: its stream closes; the computer's goes on.
+  const micBefore = sockets.mic;
+  await click('[aria-label="Your microphone"]');
+  steps.micMuted = { ended: micBefore?.ended, icon: document.querySelector('[aria-label="Your microphone"] svg')?.getAttribute("class") };
+  await say("computer", "Still here.", "", true);
+  await click('[aria-label="Your microphone"]');
+  steps.micUnmuted = sockets.mic !== micBefore;
   steps.beforeStop = box();
   // 5. Stop: saved as one message with its turns and one (mixed) clip.
   [...document.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Stop")?.click();
@@ -970,7 +970,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await click('[aria-label="Click to talk"]');
   await say("mic", "Plain words", "");
   steps.plain = box();
-  await click('[aria-label="Conversation"]');
+  await click(`[aria-label="The computer's audio"]`);
   await say("mic", " and more.", "", true);
   await say("computer", "A reply.", "", true);
   steps.converted = box();
@@ -1100,6 +1100,17 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setHistoryOpen(false);
         x.setPhase("recording");
         x.setMode("both");
+        x.setStartedAt(Date.now() - 41000);
+        x.setLevels(levels);
+        x.setBlocks(SAMPLE_LIVE);
+      },
+      // Watching a video: the microphone muted, only the computer's voices are heard.
+      "5i-conversation-mic-muted": (x) => {
+        x.setView("main");
+        x.setError(null);
+        x.setHistoryOpen(false);
+        x.setPhase("recording");
+        x.setMode("computer");
         x.setStartedAt(Date.now() - 41000);
         x.setLevels(levels);
         x.setBlocks(SAMPLE_LIVE);

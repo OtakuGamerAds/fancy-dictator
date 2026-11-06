@@ -1,4 +1,5 @@
 import {
+  MicOffIcon,
   ChevronDownIcon,
   CopyIcon,
   LoaderCircleIcon,
@@ -45,7 +46,6 @@ interface ComposerProps {
   onTextChange(text: string): void;
   onMic(): void;
   /** Start listening to the computer's audio instead: someone you are talking to. */
-  onDictateOthers(): void;
   /** Start listening to both, you and the computer's audio, as a conversation. */
   onConversation(): void;
   /** What the recording listens to, switchable while it runs. */
@@ -107,7 +107,7 @@ const MESSAGE_ACTION_PILL =
  * The empty box is one big talk button. The language picker and the undo notice inside it
  * keep their own clicks (they stop the click from reaching the box).
  */
-function TalkSurface({ error, languages, onMic, onDictateOthers, onConversation, onLanguagesChange }: ComposerProps) {
+function TalkSurface({ error, languages, onMic, onConversation, onLanguagesChange }: ComposerProps) {
   return (
     <div
       role="button"
@@ -123,10 +123,10 @@ function TalkSurface({ error, languages, onMic, onDictateOthers, onConversation,
       }}
       className="group/talk flex cursor-pointer flex-col rounded-[inherit] outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      {/* One sentence, centered: "Click to talk, or [dictate others] [conversation]". The box is
-          the mic; the buttons in the sentence listen to the computer's audio, or to both. */}
+      {/* One sentence, centered: "Click to talk, or [conversation]". The box is the mic; the
+          button listens to the computer's audio too. */}
       <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 px-3.5 pt-3 pb-1">
-        {/* The mic stays with the sentence; the buttons move down together when they do not fit. */}
+        {/* The mic stays with the sentence; the button moves down when it does not fit. */}
         <span className="flex items-center gap-2.5">
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs shadow-primary/24 transition-transform group-hover/talk:scale-105">
             <MicIcon className="size-3.5" />
@@ -136,20 +136,6 @@ function TalkSurface({ error, languages, onMic, onDictateOthers, onConversation,
           </span>
         </span>
         <span className="flex items-center gap-1.5">
-          <Button
-            variant="outline"
-            size="xs"
-            className="rounded-full before:rounded-full"
-            title="Listen to the computer's audio: someone you're talking to"
-            onClick={(event) => {
-              event.stopPropagation();
-              onDictateOthers();
-            }}
-            onKeyDown={(event) => event.stopPropagation()}
-          >
-            <MonitorSpeakerIcon />
-            dictate others
-          </Button>
           <Button
             variant="outline"
             size="xs"
@@ -266,6 +252,8 @@ function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onC
 
 /** While recording: the timer and the wave, and Stop. */
 function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: ComposerProps) {
+  const micOn = mode !== "computer";
+  const computerOn = mode !== "mic";
   return (
     <>
       <span className="flex items-center gap-2 ps-2 text-muted-foreground text-xs tabular-nums">
@@ -274,25 +262,34 @@ function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: 
         <Waveform levels={levels} className="ms-1" />
       </span>
       <div className="flex items-center gap-2">
-        {/* Switch between your voice, both of you, and the computer's audio without stopping
-            (T3's segmented toggle). */}
+        {/* What is heard, switched without stopping (T3's segmented toggle, both can be on):
+            the computer's audio makes it a conversation; the mic can be muted in one. One of
+            them stays on (Stop ends the recording). */}
         <ToggleGroup
           aria-label="Listen to"
           variant="segmented"
-          value={[mode]}
+          multiple
+          value={[...(micOn ? ["mic"] : []), ...(computerOn ? ["computer"] : [])]}
           disabled={phase !== "recording"}
           onValueChange={(value) => {
-            const next = value[0];
-            if (next === "mic" || next === "both" || next === "computer") onSwitchMode(next);
+            const mic = value.includes("mic");
+            const computer = value.includes("computer");
+            // Turning off the only one left does nothing (it would not look disabled: Stop ends).
+            if (mic || computer) onSwitchMode(mic && computer ? "both" : mic ? "mic" : "computer");
           }}
         >
-          <Toggle aria-label="Your microphone" title="Your microphone" value="mic">
-            <MicIcon className="size-3.5" />
+          <Toggle
+            aria-label="Your microphone"
+            title={micOn ? "Mute your microphone" : "Unmute your microphone"}
+            value="mic"
+          >
+            {micOn ? <MicIcon className="size-3.5" /> : <MicOffIcon className="size-3.5 text-error-foreground" />}
           </Toggle>
-          <Toggle aria-label="Conversation" title="Conversation: you and the computer's audio, each on its own" value="both">
-            <UsersIcon className="size-3.5" />
-          </Toggle>
-          <Toggle aria-label="The computer's audio" title="The computer's audio (someone you're talking to)" value="computer">
+          <Toggle
+            aria-label="The computer's audio"
+            title={computerOn ? "Stop listening to the computer's audio" : "Listen to the computer's audio too: a conversation"}
+            value="computer"
+          >
             <MonitorSpeakerIcon className="size-3.5" />
           </Toggle>
         </ToggleGroup>
