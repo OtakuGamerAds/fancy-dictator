@@ -962,13 +962,28 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
       const player = new Audio(`fd-audio://audio/${history[0].id}/${clip}`);
       durations.push(
         await new Promise<number | string>((resolve) => {
-          player.onloadedmetadata = () => resolve(player.duration);
+          player.onloadedmetadata = () => {
+            const target = player.duration / 2;
+            player.onseeked = () => resolve(`${player.duration.toFixed(2)}s, jumped to ${player.currentTime.toFixed(2)}s`);
+            player.currentTime = target;
+          };
           player.onerror = () => resolve(`error ${player.error?.code}: ${player.error?.message}`);
           setTimeout(() => resolve("timeout"), 5000);
         }),
       );
     }
     steps.clips = durations;
+    // Clicking three quarters along a clip's chip jumps there.
+    x.setHistoryOpen(true);
+    await wait(1500);
+    const chip = document.querySelector<HTMLElement>("[data-slot=context-chip]");
+    if (chip) {
+      const rect = chip.getBoundingClientRect();
+      chip.dispatchEvent(new MouseEvent("click", { bubbles: true, clientX: rect.left + rect.width * 0.75, clientY: rect.top + 2 }));
+      await wait(300);
+      steps.chipClick = chip.textContent;
+    }
+    x.setHistoryOpen(false);
   }
 
   // 6. Plain dictation that becomes a conversation midway.

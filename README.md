@@ -25,7 +25,7 @@ Copy the text, or send it to your recent messages.
   the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
   so it always opens clean.
 - Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"
-  adds the next): press ▶ on one to listen again.
+  adds the next): press ▶ on one to listen again, and click along it to jump there.
 - The languages Soniox listens for are picked at the bottom-left of the box.
 - The toolbar has settings and updates at the left; the messages arrow and **—** (hide) at
   the right.

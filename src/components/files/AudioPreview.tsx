@@ -1,8 +1,11 @@
 // Copied from T3 Code (https://github.com/pingdotgg/t3code), MIT License — see THIRD_PARTY_LICENSE_T3CODE.txt
+// Added here: clicking the chip's progress fill jumps there in the audio (T3 seeks only in its
+// full preview's player).
 import { LoaderCircleIcon, PauseIcon, PlayIcon, TriangleAlertIcon } from "lucide-react";
-import { createContext, useContext, useRef, useState } from "react";
+import { createContext, type MouseEvent, useContext, useRef, useState } from "react";
 
 import { useStableCallback } from "~/hooks/useStableCallback";
+import { cn } from "~/lib/utils";
 import { ContextChip, ContextChipAction, ContextChipLabel } from "../ContextChip";
 import { middleTruncateAttachmentName } from "../composerInlineChip";
 
@@ -91,6 +94,15 @@ function AudioChip(props: AudioPreviewProps) {
       };
   });
   const loading = !props.failed && !ready;
+  const seekable = !props.failed && duration > 0;
+  // The fill runs left to right across the chip, so where it is clicked is the time to go to.
+  const seekTo = (event: MouseEvent<HTMLElement>) => {
+    const element = audio.current;
+    const rect = event.currentTarget.getBoundingClientRect();
+    if (!element || !seekable || rect.width <= 0) return;
+    element.currentTime = Math.min(duration, Math.max(0, ((event.clientX - rect.left) / rect.width) * duration));
+    setElapsed(element.currentTime);
+  };
   const open = props.onOpen ?? (props.failed ? props.onRetry : undefined);
   const action = props.failed
     ? props.onOpen
@@ -114,8 +126,11 @@ function AudioChip(props: AudioPreviewProps) {
       kind="file"
       {...(props.failed ? { state: "invalid" as const } : {})}
       {...(props.variant === "bubble" ? { shape: "bubble" as const } : {})}
-      className="relative isolate overflow-hidden"
+      className={cn("relative isolate overflow-hidden", seekable && "cursor-pointer")}
       title={props.failed ? "Audio unavailable. Open the file or retry playback." : props.name}
+      onClick={(event) => {
+        if (!(event.target as HTMLElement).closest("button")) seekTo(event);
+      }}
     >
       <span
         aria-hidden

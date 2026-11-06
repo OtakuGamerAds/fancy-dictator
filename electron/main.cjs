@@ -523,9 +523,22 @@ function serveAudio() {
     // Snapshots play a made-up tone for their sample messages; the probe's recordings are real.
     const clip = audio.get(id, index) ?? (SNAPSHOT ? audio.sample(index === 0 ? 7 : 4) : null);
     if (!clip) return new Response(null, { status: 404 });
-    return new Response(clip.bytes, {
-      headers: { "content-type": clip.type, "content-length": String(clip.bytes.byteLength), "cache-control": "no-store" },
-    });
+    const size = clip.bytes.byteLength;
+    const headers = { "content-type": clip.type, "accept-ranges": "bytes", "cache-control": "no-store" };
+    // A part of the clip, when the player jumps to a point in it.
+    const range = /^bytes=(\d*)-(\d*)$/.exec(request.headers.get("range") ?? "");
+    if (range && (range[1] || range[2])) {
+      const start = range[1] ? Number(range[1]) : Math.max(0, size - Number(range[2]));
+      const end = range[1] && range[2] ? Math.min(Number(range[2]), size - 1) : size - 1;
+      if (start >= size || start > end) {
+        return new Response(null, { status: 416, headers: { "content-range": `bytes */${size}` } });
+      }
+      return new Response(clip.bytes.subarray(start, end + 1), {
+        status: 206,
+        headers: { ...headers, "content-range": `bytes ${start}-${end}/${size}`, "content-length": String(end - start + 1) },
+      });
+    }
+    return new Response(clip.bytes, { headers: { ...headers, "content-length": String(size) } });
   });
 }
 
