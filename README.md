@@ -7,9 +7,9 @@ Copy the text, or send it to your recent messages.
   recording, or hides the window when nothing is recording.
 - The empty box is the talk button: click anywhere in it to start the mic.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
-  recording, the mic and computer buttons next to **Stop** change it live: turning the computer
-  on makes it a conversation, and the mic can be muted in one (one of them stays on; **Stop**
-  ends). A conversation listens to both, each as its own Soniox stream (twice the cost while it
+  recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
+  muted): unmuting the computer makes it a conversation, and both muted pauses the recording
+  (nothing is sent to Soniox until one is back on). A conversation listens to both, each as its own Soniox stream (twice the cost while it
   runs), and writes a dialogue the way T3 Code shows a thread with a guest. Soniox also tells
   the voices of each stream apart, so two people on the call (or at your mic) are two
   speakers (up to 15 on each side). Speakers are numbered in the order they first spoke; each

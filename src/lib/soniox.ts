@@ -61,8 +61,8 @@ registerProcessor("pcm-capture", PcmCapture);
 
 /** Where the audio comes from: your microphone, or what the computer is playing (someone you are talking to). */
 export type AudioSource = "mic" | "computer";
-/** What a recording listens to: one source, or both as a conversation (a stream each). */
-export type ListenMode = AudioSource | "both";
+/** What a recording listens to: one source, both (a stream each), or nothing while both are muted. */
+export type ListenMode = AudioSource | "both" | "none";
 
 export interface SonioxSession {
   /** Stop listening, wait for Soniox to finalize the last words, and return the full text. */

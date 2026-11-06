@@ -400,7 +400,12 @@ export function App() {
   const leaveLane = (lane: Lane) => {
     lane.leaving = (async () => {
       await lane.session?.stop();
-      dialogueRef.current?.closeLane(lane.id);
+      if (dialogueRef.current) dialogueRef.current.closeLane(lane.id);
+      else {
+        appendSpoken(lane.pending); // plain text: anything still unsettled is kept
+        setPendingText("");
+      }
+      lane.pending = "";
       lanesRef.current = lanesRef.current.filter((l) => l !== lane);
       showDialogue();
     })();
@@ -408,7 +413,7 @@ export function App() {
 
   /** Start listening. New words are appended to the text box unless `fresh` empties it first. */
   const startRecording = useCallback(
-    async (fresh = false, from: ListenMode = "mic") => {
+    async (fresh = false, from: Exclude<ListenMode, "none"> = "mic") => {
       if (phaseRef.current !== "idle") return;
       const current = latest.current.settings;
       if (!current) return;
@@ -471,7 +476,9 @@ export function App() {
     setMode(next);
     try {
       const lanes = lanesRef.current;
-      if (!dialogueRef.current) {
+      // Each source muted or not on its own; both muted is a pause (no stream, nothing billed).
+      const want: AudioSource[] = next === "both" ? ["mic", "computer"] : next === "none" ? [] : [next];
+      if (!dialogueRef.current && want.includes("computer")) {
         // Becoming a conversation: the text so far is the first turn, and the stream already
         // running carries on in it as its speaker.
         const dialogue = ensureDialogue();
@@ -482,7 +489,6 @@ export function App() {
         setPendingText("");
         showDialogue();
       }
-      const want: AudioSource[] = next === "both" ? ["mic", "computer"] : [next];
       const missing = want.filter((source) => !lanes.some((lane) => lane.source === source && !lane.leaving));
       const added = await openLanes(missing, boxClips.current.at(-1));
       if (phaseRef.current !== "recording") {
@@ -491,6 +497,7 @@ export function App() {
       }
       lanesRef.current = [...lanesRef.current, ...added];
       for (const lane of lanesRef.current) if (!want.includes(lane.source) && !lane.leaving) leaveLane(lane);
+      if (want.length === 0) setLevels(Array(LEVEL_BARS).fill(0)); // the wave goes flat
     } catch {
       setMode(previous); // could not open it: keep listening to what it was
     } finally {
@@ -515,8 +522,7 @@ export function App() {
       return null;
     }
     if (phaseRef.current !== "recording") return null;
-    const lanes = lanesRef.current;
-    if (lanes.length === 0) return null;
+    const lanes = lanesRef.current; // none while both sources are muted
     setPhase("stopping");
     const elapsed = Date.now() - latest.current.startedAt;
     // Soniox settles the last words; they arrive through each stream's onText.
@@ -915,6 +921,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
       })
       .join(" | ");
   };
+  const findStop = () => [...document.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Stop");
   const click = async (selector: string) => {
     document.querySelector<HTMLElement>(selector)?.click();
     await wait(1500); // the sources open and the fake sockets connect
@@ -952,9 +959,12 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   const computerBefore = sockets.computer;
   await click(`[aria-label="The computer's audio"]`);
   steps.computerEnded = computerBefore?.ended;
-  // The only source left cannot be turned off.
+  // Both muted: a pause, no stream open; then the microphone again.
+  const micAlone = sockets.mic;
   await click('[aria-label="Your microphone"]');
-  steps.micAlone = { pressed: document.querySelector('[aria-label="Your microphone"]')?.hasAttribute("data-pressed"), recording: !!sockets.mic && !sockets.mic.ended };
+  steps.bothMuted = { micEnded: micAlone?.ended, stopShown: !!findStop() };
+  await click('[aria-label="Your microphone"]');
+  steps.micBack = sockets.mic !== micAlone && !sockets.mic?.ended;
   await say("mic", "Just me now.", "", true);
   // 4. And back on: a new stream for them.
   await click(`[aria-label="The computer's audio"]`);
@@ -969,7 +979,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   steps.micUnmuted = sockets.mic !== micBefore;
   steps.beforeStop = box();
   // 5. Stop: saved as one message with its turns and one (mixed) clip.
-  [...document.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Stop")?.click();
+  findStop()?.click();
   await wait(1500);
   const history = await window.api.getHistory();
   steps.saved = history[0] && { text: history[0].text, turns: history[0].turns, audioClips: history[0].audioClips, audioParts: history[0].audioParts };
@@ -1015,7 +1025,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await say("mic", " and more.", "", true);
   await say("computer", "A reply.", "", true);
   steps.converted = box();
-  [...document.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Stop")?.click();
+  findStop()?.click();
   await wait(1500);
   steps.afterStop = box();
   window.__fdTestSocket = undefined;
@@ -1155,6 +1165,11 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setStartedAt(Date.now() - 41000);
         x.setLevels(levels);
         x.setBlocks(SAMPLE_LIVE);
+      },
+      // Both muted: a pause.
+      "5k-conversation-both-muted": (x) => {
+        x.setMode("none");
+        x.setLevels(Array(LEVEL_BARS).fill(0));
       },
       "5f-conversation-done": (x) => {
         x.setView("main");

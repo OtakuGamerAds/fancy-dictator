@@ -252,8 +252,8 @@ function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onC
 
 /** While recording: the timer and the wave, and Stop. */
 function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: ComposerProps) {
-  const micOn = mode !== "computer";
-  const computerOn = mode !== "mic";
+  const micOn = mode === "mic" || mode === "both";
+  const computerOn = mode === "computer" || mode === "both";
   return (
     <>
       <span className="flex items-center gap-2 ps-2 text-muted-foreground text-xs tabular-nums">
@@ -262,9 +262,9 @@ function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: 
         <Waveform levels={levels} className="ms-1" />
       </span>
       <div className="flex items-center gap-2">
-        {/* What is heard, switched without stopping (T3's segmented toggle, both can be on):
-            the computer's audio makes it a conversation; the mic can be muted in one. One of
-            them stays on (Stop ends the recording). */}
+        {/* What is heard, each muted on its own without stopping (T3's segmented toggle, both
+            can be on): red while muted. The computer's audio makes it a conversation; both
+            muted pauses the recording. */}
         <ToggleGroup
           aria-label="Listen to"
           variant="segmented"
@@ -274,8 +274,7 @@ function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: 
           onValueChange={(value) => {
             const mic = value.includes("mic");
             const computer = value.includes("computer");
-            // Turning off the only one left does nothing (it would not look disabled: Stop ends).
-            if (mic || computer) onSwitchMode(mic && computer ? "both" : mic ? "mic" : "computer");
+            onSwitchMode(mic && computer ? "both" : mic ? "mic" : computer ? "computer" : "none");
           }}
         >
           <Toggle
@@ -287,10 +286,10 @@ function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: 
           </Toggle>
           <Toggle
             aria-label="The computer's audio"
-            title={computerOn ? "Stop listening to the computer's audio" : "Listen to the computer's audio too: a conversation"}
+            title={computerOn ? "Mute the computer's audio" : "Unmute the computer's audio (a conversation)"}
             value="computer"
           >
-            <MonitorSpeakerIcon className="size-3.5" />
+            <MonitorSpeakerIcon className={cn("size-3.5", !computerOn && "text-error-foreground")} />
           </Toggle>
         </ToggleGroup>
         <Button variant="outline" size="sm" className="h-8 rounded-full px-3 before:rounded-full sm:h-7" disabled={phase === "stopping"} onClick={onStop}>
