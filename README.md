@@ -7,7 +7,16 @@ Copy the text, or send it to your recent messages.
   recording, or hides the window when nothing is recording.
 - The empty box is the talk button: click anywhere in it to start the mic.
 - **dictate others** listens to what the computer is playing instead (the person you're on a
-  call with). While recording, the mic / computer switch next to **Stop** changes it live.
+  call with). While recording, the mic / conversation / computer switch next to **Stop**
+  changes it live.
+- **conversation** listens to both, each as its own Soniox stream (twice the cost while it
+  runs), and writes a dialogue the way T3 Code shows a thread with a guest: your turns in your
+  message bubble, theirs in the guest's (pink) bubble.
+  Turns follow the order they started and are never split: if they cut in, your sentence
+  stays whole and theirs comes after it. Without headphones the mic hears them too; a turn of
+  yours that is mostly their words is dropped as echo. **Copy** copies the conversation
+  ("You: … / Them: …"); its arrow copies only your side or only theirs. The saved message
+  keeps one clip with both voices.
 - **Copy** (or `Ctrl+Enter`) copies the text, keeps it in your messages below, and empties
   the box for the next one; `Ctrl+Z` brings it back. Hiding the window keeps the text too,
   so it always opens clean.

@@ -51,6 +51,9 @@
   --color-success-foreground: var(--success-foreground);
   --color-warning: var(--warning);
   --color-warning-foreground: var(--warning-foreground);
+  --color-guest: var(--guest);
+  --color-guest-foreground: var(--guest-foreground);
+  --color-guest-surface: var(--guest-surface);
   --color-warning-surface: var(--warning-surface);
   --ease-drawer: cubic-bezier(0.32, 0.72, 0, 1);
   /* T3 Code's dense UI size (11px). */
@@ -97,6 +100,10 @@
   --warning: oklch(0.769 0.188 70.08);
   --warning-foreground: oklch(0.828 0.189 84.429);
   --warning-surface: color-mix(in srgb, var(--warning) 16%, transparent);
+  /* T3 Code: messages from a guest (another person in the thread). fuchsia-500 / fuchsia-300. */
+  --guest: oklch(0.667 0.295 322.15);
+  --guest-foreground: oklch(0.833 0.145 321.434);
+  --guest-surface: color-mix(in srgb, var(--guest) 14%, var(--message-surface));
   --border: rgb(255 255 255 / 8%);
   --input: rgb(255 255 255 / 11%);
   --ring: var(--primary);

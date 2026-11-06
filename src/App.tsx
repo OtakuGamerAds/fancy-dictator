@@ -3,12 +3,44 @@ import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react
 import { Composer, type Phase } from "~/components/Composer";
 import { HistoryPanel } from "~/components/HistoryPanel";
 import { SettingsView } from "~/components/SettingsView";
-import { type AudioSource, describeStartError, type SonioxSession, startSoniox } from "~/lib/soniox";
+import { type AudioTrack, mixTracks } from "~/lib/audioMix";
+import {
+  type CopyWhich,
+  Dialogue,
+  type DialogueBlock,
+  type DialogueTurn,
+  formatConversation,
+  newTurnId,
+  SPEAKER_LABEL,
+  type Speaker,
+  speakerText,
+  type Turn,
+} from "~/lib/dialogue";
+import { type AudioSource, describeStartError, type ListenMode, type SonioxSession, startSoniox } from "~/lib/soniox";
 import type { HistoryEntry, Settings } from "~/lib/types";
 import { releaseUndoShortcut, showUndoNotice, undoClaimsShortcut, undoLatestAction } from "~/lib/undoNotice";
 import { joinSpoken } from "~/lib/utils";
 
 type View = "main" | "settings";
+
+/** One Soniox stream of the recording, from one source. */
+interface Lane {
+  id: number;
+  source: AudioSource;
+  session: SonioxSession | null;
+  /** How much of the stream's settled text has been placed in the box. */
+  appended: number;
+  pending: string;
+  level: number;
+  track: AudioTrack;
+  /** Set while the stream finishes because its source was switched off. */
+  leaving: Promise<void> | null;
+}
+
+/** Your microphone is you; the computer's audio is the person you are talking to. */
+const speakerOf = (source: AudioSource): Speaker => (source === "computer" ? "them" : "me");
+const savedTurns = (turns: DialogueTurn[]): Turn[] =>
+  turns.filter((turn) => turn.text.trim()).map(({ speaker, text }) => ({ speaker, text: text.trim() }));
 
 const LEVEL_BARS = 18;
 /** One width for everything: text wraps and the card grows downward instead of wider. */
@@ -47,7 +79,9 @@ export function App() {
   const [copied, setCopied] = useState(false);
 
   const phaseRef = useRef<Phase>("idle");
-  const sessionRef = useRef<SonioxSession | null>(null);
+  // The recording's streams: one, or two in a conversation (your microphone and the computer).
+  const lanesRef = useRef<Lane[]>([]);
+  const laneSeq = useRef(0);
   const latest = useLatest({ settings, view, startedAt, text, durationMs, historyOpen });
 
   const setPhase = (next: Phase) => {
@@ -110,33 +144,82 @@ export function App() {
     writeText(joinSpoken(textRef.current, chunk, spokenContinues()));
     spokenEnd.current = textRef.current;
   };
-  const appendedLength = useRef(0); // how much of this session's final text is already in the box
-  const pendingRef = useRef("");
   const textAtStart = useRef("");
 
-  // The recordings made into the box and not yet saved with its message, one clip each
-  // (a clip is the audio chunks sent to Soniox during one recording).
-  const boxClips = useRef<ArrayBuffer[][]>([]);
+  // ── Conversation: the box as a dialogue of turns ──
+  // Who the plain text in the box was dictated by, should it become a conversation.
+  const plainSpeaker = useRef<Speaker>("me");
+  // The box's turns when it holds a conversation (null: plain text). Its text is then the
+  // conversation written out ("You: …"), which is what Copy takes and what is saved.
+  const turnsRef = useRef<DialogueTurn[] | null>(null);
+  const [blocks, setBlocks] = useState<DialogueBlock[] | null>(null);
+  // While recording into a conversation: places each stream's words in its speaker's turns.
+  const dialogueRef = useRef<Dialogue | null>(null);
+
+  const writeTurns = (turns: DialogueTurn[] | null) => {
+    turnsRef.current = turns;
+    setBlocks(turns && turns.map((turn) => ({ ...turn, pending: "" })));
+    writeText(turns ? formatConversation(turns) : "");
+  };
+
+  /** Show the conversation as it is now, the words still being recognized included. */
+  const showDialogue = () => {
+    const dialogue = dialogueRef.current;
+    if (!dialogue) return;
+    turnsRef.current = dialogue.turns;
+    setBlocks(dialogue.view());
+    writeText(formatConversation(dialogue.turns));
+  };
+
+  /** Record into the box as a conversation; plain text already in it becomes the first turn. */
+  const ensureDialogue = (): Dialogue => {
+    if (dialogueRef.current) return dialogueRef.current;
+    const plain = textRef.current;
+    const turns = turnsRef.current ?? (plain.trim() ? [{ id: newTurnId(), speaker: plainSpeaker.current, text: plain }] : []);
+    dialogueRef.current = new Dialogue(turns);
+    return dialogueRef.current;
+  };
+
+  /** The recording into the conversation ended: keep the turns that have words. */
+  const finishDialogue = () => {
+    const dialogue = dialogueRef.current;
+    if (!dialogue) return;
+    dialogueRef.current = null;
+    const turns = dialogue.turns.filter((turn) => turn.text.trim());
+    writeTurns(turns.length ? turns : null);
+  };
+
+  // The recordings made into the box and not yet saved with its message, one clip each (a
+  // clip is the audio sent to Soniox during one recording: a track per stream, mixed on saving).
+  const boxClips = useRef<AudioTrack[][]>([]);
 
   /** Save a message, with each recording made into it since it was last saved as a clip. */
   const saveEntry = async (entry: HistoryEntry) => {
     const clips = boxClips.current;
     boxClips.current = [];
-    for (const chunks of clips) {
-      if (chunks.length === 0) continue;
-      const pcm = new Uint8Array(chunks.reduce((sum, chunk) => sum + chunk.byteLength, 0));
-      let offset = 0;
-      for (const chunk of chunks) {
-        pcm.set(new Uint8Array(chunk), offset);
-        offset += chunk.byteLength;
-      }
-      await window.api.addAudioClip(entry.id, pcm.buffer);
+    for (const tracks of clips) {
+      const pcm = mixTracks(tracks);
+      if (pcm) await window.api.addAudioClip(entry.id, pcm);
     }
     setHistory(await window.api.addHistory(entry));
   };
 
+  /** The message the box makes now. */
+  const boxEntry = (text: string, durationMs: number): HistoryEntry => {
+    const turns = turnsRef.current && savedTurns(turnsRef.current);
+    return {
+      id: entryId.current ?? crypto.randomUUID(),
+      text,
+      createdAt: Date.now(),
+      durationMs,
+      ...(turns?.length ? { turns } : {}),
+    };
+  };
+
   const clearText = () => {
     boxClips.current = [];
+    turnsRef.current = null;
+    setBlocks(null);
     writeText("");
     setDurationMs(0);
     entryId.current = null;
@@ -146,7 +229,12 @@ export function App() {
    * Turn what is in the box into a message in the history and start clean, like sending in
    * T3. Used by Ctrl+Enter and whenever the window is hidden. A recording is finished first.
    */
-  const sendBox = async ({ showInHistory = false, undoable = false, copy = false } = {}) => {
+  const sendBox = async ({
+    showInHistory = false,
+    undoable = false,
+    copy = false,
+    which = "all" as CopyWhich,
+  } = {}) => {
     let value = textRef.current;
     let duration = latest.current.durationMs;
     if (phaseRef.current === "recording" || phaseRef.current === "stopping") {
@@ -157,7 +245,7 @@ export function App() {
     }
     const trimmed = value.trim();
     if (trimmed) {
-      const entry = { id: entryId.current ?? crypto.randomUUID(), text: trimmed, createdAt: Date.now(), durationMs: duration };
+      const entry = boxEntry(trimmed, duration);
       await saveEntry(entry);
       if (showInHistory) {
         // Open the list on just what was cleared this session, so it is seen landing there.
@@ -165,12 +253,13 @@ export function App() {
         setHistoryMode("session");
         setHistoryOpen(true);
       }
-      if (copy) await window.api.copy(entry.text);
+      if (copy) await window.api.copy(which === "all" || !entry.turns ? entry.text : speakerText(entry.turns, which));
       if (undoable) {
         showUndoNotice({
           action: copy ? "Copied" : "Cleared",
           undo: () => {
-            writeText(entry.text);
+            if (entry.turns) writeTurns(entry.turns.map((turn) => ({ ...turn, id: newTurnId() })));
+            else writeText(entry.text);
             setDurationMs(entry.durationMs);
             entryId.current = entry.id;
           },
@@ -184,12 +273,123 @@ export function App() {
 
   // ── Recording ──────────────────────────────────────────────────────────
 
-  // What the recording listens to: your microphone, or the computer's audio ("Dictate others").
-  const [source, setSource] = useState<AudioSource>("mic");
+  // What the recording listens to: your microphone, the computer's audio ("dictate others"),
+  // or both as a conversation.
+  const [mode, setModeState] = useState<ListenMode>("mic");
+  const modeRef = useRef<ListenMode>("mic");
+  const setMode = (next: ListenMode) => {
+    modeRef.current = next;
+    setModeState(next);
+  };
+
+  /** A stream's new words: into the conversation, or appended to the plain text. */
+  const laneText = (lane: Lane, final: string, pending: string, endpoints: number[]) => {
+    const piece = final.slice(lane.appended);
+    const ends = endpoints.map((end) => end - lane.appended);
+    lane.appended = final.length;
+    lane.pending = pending;
+    const dialogue = dialogueRef.current;
+    if (dialogue) {
+      dialogue.update(lane.id, piece, pending, ends);
+      showDialogue();
+    } else {
+      appendSpoken(piece);
+      setPendingText(pending);
+    }
+  };
+
+  /** The wave shows the louder of the streams, moving once per chunk of the first one. */
+  const laneLevel = (lane: Lane, level: number) => {
+    lane.level = level;
+    const active = lanesRef.current.filter((l) => !l.leaving);
+    if (active[0] !== lane) return;
+    const loudest = Math.max(...active.map((l) => l.level));
+    setLevels((prev) => [...prev.slice(1), loudest]);
+  };
+
+  /** Stop every stream at once, dropping the words not settled yet (Esc, or an error). */
+  const cancelLanes = () => {
+    const lanes = lanesRef.current;
+    lanesRef.current = [];
+    for (const lane of lanes) {
+      lane.session?.cancel();
+      lane.pending = "";
+      dialogueRef.current?.closeLane(lane.id, false);
+    }
+    finishDialogue();
+    setPendingText("");
+  };
+
+  const failRecording = (message: string) => {
+    setError(message);
+    cancelLanes();
+    setPhase("idle");
+  };
+
+  /**
+   * Open a stream for each source, recording its audio into `clip`. All or none: if one cannot
+   * start, the others are closed and the error says which source failed.
+   */
+  const openLanes = async (sources: AudioSource[], clip: AudioTrack[]): Promise<Lane[]> => {
+    const current = latest.current.settings!;
+    // "Latest" is resolved from Soniox's model list, so new models are used without an app update.
+    const model = await window.api.resolveModel();
+    const lanes = sources.map(
+      (source): Lane => ({
+        id: ++laneSeq.current,
+        source,
+        session: null,
+        appended: 0,
+        pending: "",
+        level: 0,
+        track: { at: null, chunks: [] },
+        leaving: null,
+      }),
+    );
+    for (const lane of lanes) dialogueRef.current?.addLane(lane.id, speakerOf(lane.source));
+    const results = await Promise.allSettled(
+      lanes.map(async (lane) => {
+        lane.session = await startSoniox({
+          apiKey: current.sonioxApiKey,
+          model,
+          languageHints: current.languages,
+          source: lane.source,
+          deviceId: current.micDeviceId || undefined,
+          onText: (final, pending, endpoints) => laneText(lane, final, pending, endpoints),
+          onLevel: (level) => laneLevel(lane, level),
+          onAudio: (pcm) => {
+            lane.track.at ??= performance.now() - pcm.byteLength / 2 / 16;
+            lane.track.chunks.push(pcm);
+          },
+          onError: failRecording,
+        });
+      }),
+    );
+    const failed = results.findIndex((result) => result.status === "rejected");
+    if (failed >= 0) {
+      for (const lane of lanes) {
+        lane.session?.cancel();
+        dialogueRef.current?.closeLane(lane.id, false);
+      }
+      throw { error: (results[failed] as PromiseRejectedResult).reason, source: lanes[failed]!.source };
+    }
+    for (const lane of lanes) clip.push(lane.track);
+    return lanes;
+  };
+
+  /** A source switched off mid-recording: its stream settles its last words, then closes. */
+  const leaveLane = (lane: Lane) => {
+    lane.leaving = (async () => {
+      await lane.session?.stop();
+      dialogueRef.current?.closeLane(lane.id);
+      lanesRef.current = lanesRef.current.filter((l) => l !== lane);
+      showDialogue();
+    })();
+  };
 
   /** Start listening. New words are appended to the text box unless `fresh` empties it first. */
   const startRecording = useCallback(
-    async (fresh = false, from: AudioSource = "mic") => {
+    async (fresh = false, from: ListenMode = "mic") => {
       if (phaseRef.current !== "idle") return;
       const current = latest.current.settings;
       if (!current) return;
@@ -200,69 +400,89 @@ export function App() {
       }
       if (fresh) clearText();
       setPhase("starting");
-      setSource(from);
+      setMode(from);
       setView("main");
       setError(null);
-      appendedLength.current = 0;
       spokenEnd.current = null;
-      pendingRef.current = "";
       textAtStart.current = textRef.current;
-      const clip: ArrayBuffer[] = [];
+      const clip: AudioTrack[] = [];
       boxClips.current.push(clip);
+      // Both sides, or a box that already holds a conversation: the words go into turns.
+      if (from === "both" || turnsRef.current) ensureDialogue();
+      else plainSpeaker.current = speakerOf(from);
       setPendingText("");
       setLevels(Array(LEVEL_BARS).fill(0));
       setCopied(false);
       setStartedAt(Date.now());
       setNow(Date.now());
       try {
-        // "Latest" is resolved from Soniox's model list, so new models are used without an app update.
-        const model = await window.api.resolveModel();
-        const session = await startSoniox({
-          apiKey: current.sonioxApiKey,
-          model,
-          languageHints: current.languages,
-          source: from,
-          deviceId: current.micDeviceId || undefined,
-          onText: (final, pending) => {
-            appendSpoken(final.slice(appendedLength.current));
-            appendedLength.current = final.length;
-            pendingRef.current = pending;
-            setPendingText(pending);
-          },
-          onLevel: (level) => setLevels((prev) => [...prev.slice(1), level]),
-          onAudio: (pcm) => clip.push(pcm),
-          onError: (message) => {
-            setError(message);
-            sessionRef.current?.cancel();
-            sessionRef.current = null;
-            setPhase("idle");
-          },
-        });
+        const lanes = await openLanes(from === "both" ? ["mic", "computer"] : [from], clip);
         // Read through a cast: TypeScript narrowed phaseRef.current above, but it may have changed while awaiting.
         if ((phaseRef.current as Phase) !== "starting") {
-          session.cancel(); // Cancelled, or failed, while we were connecting.
+          // Cancelled, or failed, while we were connecting.
+          for (const lane of lanes) {
+            lane.session?.cancel();
+            dialogueRef.current?.closeLane(lane.id, false);
+          }
+          finishDialogue();
           return;
         }
-        sessionRef.current = session;
+        lanesRef.current = lanes;
         setPhase("recording");
-      } catch (startError) {
-        setError(describeStartError(startError, from));
+      } catch (failure) {
+        const { error: startError, source } = failure as { error: unknown; source: AudioSource };
+        finishDialogue();
+        setError(describeStartError(startError, source));
         setPhase("idle");
       }
     },
+    // The helpers it calls only read refs and state setters, so they never go stale.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
     [latest],
   );
 
   /** Switch what the recording listens to, without stopping it. */
-  const switchSource = async (next: AudioSource) => {
-    const session = sessionRef.current;
-    if (!session || next === source) return;
-    const previous = source;
-    setSource(next);
+  const switching = useRef(false);
+  const switchMode = async (next: ListenMode) => {
+    const previous = modeRef.current;
+    if (switching.current || phaseRef.current !== "recording" || next === previous) return;
+    switching.current = true;
+    setMode(next);
     try {
-      await session.setSource(next);
+      const lanes = lanesRef.current;
+      if (!dialogueRef.current && next !== "both") {
+        // Plain text: the one stream keeps going and listens to the other source from now on.
+        const lane = lanes[0];
+        if (!lane?.session) return;
+        await lane.session.setSource(next);
+        lane.source = next;
+        plainSpeaker.current = speakerOf(next);
+        return;
+      }
+      if (!dialogueRef.current) {
+        // Becoming a conversation: the text so far is the first turn, and the stream already
+        // running carries on in it as its speaker.
+        const dialogue = ensureDialogue();
+        for (const lane of lanes) {
+          dialogue.addLane(lane.id, speakerOf(lane.source), spokenContinues());
+          dialogue.update(lane.id, "", lane.pending);
+        }
+        setPendingText("");
+        showDialogue();
+      }
+      const want: AudioSource[] = next === "both" ? ["mic", "computer"] : [next];
+      const missing = want.filter((source) => !lanes.some((lane) => lane.source === source && !lane.leaving));
+      const added = await openLanes(missing, boxClips.current.at(-1) ?? []);
+      if (phaseRef.current !== "recording") {
+        for (const lane of added) lane.session?.cancel();
+        return;
+      }
+      lanesRef.current = [...lanesRef.current, ...added];
+      for (const lane of lanesRef.current) if (!want.includes(lane.source) && !lane.leaving) leaveLane(lane);
     } catch {
-      setSource(previous); // could not open it: keep listening to what it was
+      setMode(previous); // could not open it: keep listening to what it was
+    } finally {
+      switching.current = false;
     }
   };
 
@@ -283,14 +503,22 @@ export function App() {
       return null;
     }
     if (phaseRef.current !== "recording") return null;
-    const session = sessionRef.current;
-    sessionRef.current = null;
-    if (!session) return null;
+    const lanes = lanesRef.current;
+    if (lanes.length === 0) return null;
     setPhase("stopping");
     const elapsed = Date.now() - latest.current.startedAt;
-    await session.stop(); // Soniox settles the last words; onText appends them to the box.
-    appendSpoken(pendingRef.current); // anything still unsettled if it timed out
-    pendingRef.current = "";
+    // Soniox settles the last words; they arrive through each stream's onText.
+    await Promise.all(lanes.map((lane) => lane.leaving ?? lane.session?.stop()));
+    lanesRef.current = [];
+    // Anything still unsettled if it timed out is kept.
+    const dialogue = dialogueRef.current;
+    if (dialogue) {
+      for (const lane of lanes) dialogue.closeLane(lane.id);
+      finishDialogue();
+    } else {
+      appendSpoken(lanes[0]?.pending ?? "");
+    }
+    for (const lane of lanes) lane.pending = "";
     setPendingText("");
     setPhase("idle");
     const combined = textRef.current.trim();
@@ -301,21 +529,19 @@ export function App() {
     }
     const duration = latest.current.durationMs + elapsed;
     entryId.current ??= crypto.randomUUID();
-    writeText(combined);
+    if (!turnsRef.current) writeText(combined);
     setDurationMs(duration);
-    const entry: HistoryEntry = { id: entryId.current, text: combined, createdAt: Date.now(), durationMs: duration };
-    await saveEntry(entry);
+    await saveEntry(boxEntry(combined, duration));
     return { text: combined, durationMs: duration };
   };
 
   /** Esc while recording: stop listening; settled words stay, unsettled ones are dropped. */
   const cancelRecording = useCallback(() => {
-    sessionRef.current?.cancel();
-    sessionRef.current = null;
-    pendingRef.current = "";
-    setPendingText("");
+    cancelLanes();
     setPhase("idle");
     setError(null);
+    // cancelLanes only touches refs and state setters.
+    // eslint-disable-next-line react-hooks/exhaustive-deps
   }, []);
 
   // Elapsed timer while recording.
@@ -434,7 +660,7 @@ export function App() {
     let last = "";
     const tick = () => {
       const elements = [
-        ...document.querySelectorAll<HTMLElement>("#root > div, [data-slot=select-popup], [data-slot=popover-popup]"),
+        ...document.querySelectorAll<HTMLElement>("#root > div, [data-slot=select-popup], [data-slot=popover-popup], [data-slot=menu-popup]"),
       ];
       const rects = elements.map((el) => {
         const r = el.getBoundingClientRect();
@@ -463,6 +689,12 @@ export function App() {
     setLevels,
     setError,
     setSettings,
+    setBlocks: (value) => {
+      turnsRef.current = value;
+      setBlocks(value);
+      writeText(value ? formatConversation(value) : "");
+    },
+    setMode,
     contentRef,
   });
 
@@ -488,6 +720,7 @@ export function App() {
             <Composer
               phase={phase}
               text={text}
+              dialogue={blocks}
               pendingText={pendingText}
               pendingContinues={spokenEnd.current !== null && text === spokenEnd.current}
               error={error}
@@ -502,11 +735,12 @@ export function App() {
               }}
               onMic={() => void startRecording()}
               onDictateOthers={() => void startRecording(false, "computer")}
-              source={source}
-              onSwitchSource={(next) => void switchSource(next)}
+              onConversation={() => void startRecording(false, "both")}
+              mode={mode}
+              onSwitchMode={(next) => void switchMode(next)}
               onStop={() => void stopRecording()}
               // Copy, keep it in the messages, and start fresh: talk → Copy → paste anywhere.
-              onCopy={() => void sendBox({ showInHistory: true, undoable: true, copy: true })}
+              onCopy={(which) => void sendBox({ showInHistory: true, undoable: true, copy: true, which })}
               languages={settings?.languages ?? []}
               onLanguagesChange={(languages) => {
                 if (!settings) return;
@@ -566,8 +800,151 @@ const SAMPLE_HISTORY: HistoryEntry[] = [
   { id: "4", text: "بكرا الساعة عشرة منراجع الكود", createdAt: Date.now() - 26 * 3600000, durationMs: 9000 },
 ];
 
+// A conversation: you (the microphone) and them (the computer's audio). They cut in while you
+// were still talking, so their turn comes after yours.
+const SAMPLE_TURNS: DialogueBlock[] = [
+  { id: "c1", speaker: "me", text: "مرحبا، شفت النسخة الجديدة من البرنامج؟", pending: "" },
+  { id: "c2", speaker: "them", text: "اي، جربتها اليوم الصبح، والتحديث اشتغل تمام.", pending: "" },
+  { id: "c3", speaker: "me", text: "حلو، وقسم الصوت، سجّل صوتنا نحنا الاتنين؟", pending: "" },
+  { id: "c4", speaker: "them", text: "عفوًا، لحظة، أي قسم بالضبط؟", pending: "" },
+];
+const SAMPLE_LIVE: DialogueBlock[] = [
+  SAMPLE_TURNS[0]!,
+  SAMPLE_TURNS[1]!,
+  { id: "c3", speaker: "me", text: "حلو، وقسم الصوت، سجّل", pending: " صوتنا نحنا" },
+  { id: "c4", speaker: "them", text: "", pending: "عفوًا، لحظة، أي" },
+];
+const SAMPLE_CONVERSATION: HistoryEntry = {
+  id: "c",
+  text: formatConversation(SAMPLE_TURNS),
+  turns: SAMPLE_TURNS.map(({ speaker, text }) => ({ speaker, text })),
+  createdAt: Date.now() - 30000,
+  durationMs: 41000,
+  audioClips: 1,
+};
+
 const LONG_TEXT =
   "مرحبا، بدي اكتب رسالة سريعة لفريق العمل بخصوص التحديث الجاي. أولاً لازم نراجع الكود بكرا الساعة عشرة الصبح، ونتأكد إنو كل الملاحظات المفتوحة انحلّت. بعدين لازم نصلّح مشكلة الاختصار لأنها لسا عم تعمل تعارض على بعض الأجهزة. كمان بقترح نرتّب صفحة الإعدادات ونخليها أوضح للمستخدمين الجداد. إذا خلصنا المراجعة بكرا، منكون جاهزين للإطلاق بالموعد المحدد بدون أي تأخير. وإذا عند حدا ملاحظات زيادة، يا ريت يكتبها بالقناة قبل الاجتماع. وكمان لا تنسوا نحدّث ملف التغييرات ونكتب فيه كل شي تغيّر بهالنسخة، مشان يكون واضح للكل شو الجديد وشو انصلح. شكراً للجميع على الشغل الحلو بهالأسبوع، وبشوفكم بكرا إن شاء الله.";
+
+/**
+ * `pnpm probe`: drives conversation mode through the real UI with a scripted Soniox (one fake
+ * socket per source; the real microphone and computer audio are opened). Returns what the box
+ * showed at each step and the message that was saved.
+ */
+async function probeConversation(x: SnapshotSetters, settings: Settings) {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  type Token = { text: string; is_final: boolean };
+  const sockets: Partial<Record<AudioSource, { emit(tokens: Token[]): void; ended: boolean }>> = {};
+  window.__fdTestSocket = (source) => {
+    const socket = {
+      readyState: 0 as number,
+      ended: false,
+      onopen: null as null | (() => void),
+      onmessage: null as null | ((event: { data: string }) => void),
+      onerror: null,
+      onclose: null,
+      send(data: unknown) {
+        if (data === "") {
+          socket.ended = true;
+          setTimeout(() => socket.onmessage?.({ data: JSON.stringify({ tokens: [], finished: true }) }), 30);
+        }
+      },
+      close() {
+        socket.readyState = 3;
+      },
+      emit(tokens: Token[]) {
+        socket.onmessage?.({ data: JSON.stringify({ tokens }) });
+      },
+    };
+    setTimeout(() => {
+      socket.readyState = 1;
+      socket.onopen?.();
+    }, 30);
+    sockets[source] = socket;
+    return socket as unknown as WebSocket;
+  };
+  const say = async (source: AudioSource, final: string, pending = "", end = false) => {
+    const tokens: Token[] = [];
+    if (final) tokens.push({ text: final, is_final: true });
+    if (end) tokens.push({ text: "<end>", is_final: true });
+    if (pending) tokens.push({ text: pending, is_final: false });
+    sockets[source]?.emit(tokens);
+    await wait(60);
+  };
+  const box = () => {
+    const turns = [...document.querySelectorAll<HTMLElement>("[data-slot=composer-box] [data-speaker]")];
+    if (turns.length === 0) {
+      const plain = document.querySelector<HTMLTextAreaElement>("[data-slot=composer-box] textarea");
+      return plain ? `plain: ${plain.value}` : "(empty)";
+    }
+    return turns
+      .map((turn) => {
+        const full = turn.querySelector("[data-turn-text]")?.textContent ?? "";
+        const pending = turn.querySelector("bdi")?.textContent ?? "";
+        const said = full.slice(0, full.length - pending.length).trimEnd();
+        return `${SPEAKER_LABEL[turn.dataset.speaker as Speaker]}: ${said}${pending ? `[${pending}]` : ""}`;
+      })
+      .join(" | ");
+  };
+  const click = async (selector: string) => {
+    document.querySelector<HTMLElement>(selector)?.click();
+    await wait(1500); // the sources open and the fake sockets connect
+  };
+  const steps: Record<string, unknown> = {};
+  x.setSettings(settings);
+  x.setView("main");
+  x.setHistory([]);
+  x.setBlocks(null);
+  x.setText("");
+  await wait(300);
+
+  // 1. Conversation from the empty box; they cut in while you are still talking.
+  await click('[title^="Listen to you and the computer"]');
+  steps.opened = Object.keys(sockets).sort().join("+");
+  await say("mic", "Hey, did", " you");
+  await say("computer", "", "Sorry");
+  steps.interrupt = box();
+  await say("mic", " you get it?", "", true);
+  await say("computer", "Sorry, which one?", "", true);
+  steps.turns = box();
+  // 2. The echo of their words in your microphone is dropped.
+  await say("computer", " I tried it this morning.", "");
+  await say("mic", "tried it this morning", "", true);
+  await say("computer", "", "", true);
+  steps.echo = box();
+  // 3. Switch to your microphone only: their stream settles and closes.
+  const computerBefore = sockets.computer;
+  await click('[aria-label="Your microphone"]');
+  steps.computerEnded = computerBefore?.ended;
+  await say("mic", "Just me now.", "", true);
+  // 4. And back to both: a new stream for them.
+  await click('[aria-label="Conversation"]');
+  steps.newComputerSocket = sockets.computer !== computerBefore;
+  await say("computer", "Back again.", "", true);
+  steps.beforeStop = box();
+  // 5. Stop: saved as one message with its turns and one (mixed) clip.
+  [...document.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Stop")?.click();
+  await wait(1500);
+  const history = await window.api.getHistory();
+  steps.saved = history[0] && { text: history[0].text, turns: history[0].turns, audioClips: history[0].audioClips };
+
+  // 6. Plain dictation that becomes a conversation midway.
+  x.setBlocks(null);
+  x.setText("");
+  await wait(200);
+  await click('[aria-label="Click to talk"]');
+  await say("mic", "Plain words", "");
+  steps.plain = box();
+  await click('[aria-label="Conversation"]');
+  await say("mic", " and more.", "", true);
+  await say("computer", "A reply.", "", true);
+  steps.converted = box();
+  [...document.querySelectorAll<HTMLElement>("button")].find((b) => b.textContent?.trim() === "Stop")?.click();
+  await wait(1500);
+  steps.afterStop = box();
+  window.__fdTestSocket = undefined;
+  return steps;
+}
 
 interface SnapshotSetters {
   setView(v: View): void;
@@ -581,6 +958,8 @@ interface SnapshotSetters {
   setLevels(v: number[]): void;
   setError(v: string | null): void;
   setSettings(v: Settings): void;
+  setBlocks(v: DialogueBlock[] | null): void;
+  setMode(v: ListenMode): void;
   contentRef: React.RefObject<HTMLDivElement | null>;
 }
 
@@ -680,6 +1059,30 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setText("");
         showUndoNotice({ action: "Copied", undo: () => {} });
       },
+      "5e-conversation": (x) => {
+        x.setView("main");
+        x.setError(null);
+        x.setHistoryOpen(false);
+        x.setPhase("recording");
+        x.setMode("both");
+        x.setStartedAt(Date.now() - 41000);
+        x.setLevels(levels);
+        x.setBlocks(SAMPLE_LIVE);
+      },
+      "5f-conversation-done": (x) => {
+        x.setView("main");
+        x.setHistoryOpen(false);
+        x.setPhase("idle");
+        x.setBlocks(SAMPLE_TURNS);
+        x.setDurationMs(41000);
+      },
+      "5g-conversation-history": (x) => {
+        x.setBlocks(null);
+        x.setDurationMs(0);
+        x.setMode("mic");
+        x.setHistory([SAMPLE_CONVERSATION, ...SAMPLE_HISTORY]);
+        x.setHistoryOpen(true);
+      },
       "6-settings": (x) => {
         x.setError(null);
         x.setHistoryOpen(false);
@@ -751,7 +1154,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
         } catch (e) {
           events.push(`start-failed:${describeStartError(e)}`);
         }
-        return { events, levelMessages, heard };
+        return { events, levelMessages, heard, conversation: await probeConversation(setters.current, demoSettings) };
       },
       views: () => Object.keys(scenes),
       show: async (name) => {

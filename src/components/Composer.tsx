@@ -7,16 +7,20 @@ import {
   MonitorSpeakerIcon,
   Settings2Icon,
   SquareIcon,
+  UsersIcon,
 } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { ConversationTurn } from "~/components/ConversationTurn";
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
+import { Menu, MenuItem, MenuPopup, MenuTrigger } from "~/components/ui/menu";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
 import { Waveform } from "~/components/Waveform";
-import type { AudioSource } from "~/lib/soniox";
+import { type CopyWhich, type DialogueBlock, type Speaker } from "~/lib/dialogue";
+import type { ListenMode } from "~/lib/soniox";
 import { cn, countWords, formatDuration, joinSpoken, textDirection } from "~/lib/utils";
 
 export type Phase = "idle" | "starting" | "recording" | "stopping";
@@ -25,6 +29,8 @@ interface ComposerProps {
   phase: Phase;
   /** The text box's content (editable when not recording). */
   text: string;
+  /** A conversation's turns, shown instead of plain text (null: plain text). */
+  dialogue: DialogueBlock[] | null;
   /** While recording: the words Soniox is still deciding on (settled ones are already in `text`). */
   pendingText: string;
   /** Whether `pendingText` carries on from Soniox's last settled piece (so no space is added). */
@@ -40,12 +46,14 @@ interface ComposerProps {
   onMic(): void;
   /** Start listening to the computer's audio instead: someone you are talking to. */
   onDictateOthers(): void;
+  /** Start listening to both, you and the computer's audio, as a conversation. */
+  onConversation(): void;
   /** What the recording listens to, switchable while it runs. */
-  source: AudioSource;
-  onSwitchSource(source: AudioSource): void;
+  mode: ListenMode;
+  onSwitchMode(mode: ListenMode): void;
   onStop(): void;
-  /** Copy the text, keep it in the messages and empty the box (stops a recording first). */
-  onCopy(): void;
+  /** Copy the text (or one side of a conversation), keep it in the messages and empty the box. */
+  onCopy(which: CopyWhich): void;
   languages: string[];
   onLanguagesChange(languages: string[]): void;
   onToggleHistory(): void;
@@ -78,7 +86,7 @@ export function Composer(props: ComposerProps) {
         ) : (
           <>
             <div className="px-3.5 pt-2.5 pb-1">
-              <ComposerText {...props} />
+              {props.dialogue ? <DialogueText {...props} dialogue={props.dialogue} /> : <ComposerText {...props} />}
               {props.error && <p className="mt-1 text-error-foreground text-xs">{props.error}</p>}
             </div>
             <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
@@ -99,7 +107,7 @@ const MESSAGE_ACTION_PILL =
  * The empty box is one big talk button. The language picker and the undo notice inside it
  * keep their own clicks (they stop the click from reaching the box).
  */
-function TalkSurface({ error, languages, onMic, onDictateOthers, onLanguagesChange }: ComposerProps) {
+function TalkSurface({ error, languages, onMic, onDictateOthers, onConversation, onLanguagesChange }: ComposerProps) {
   return (
     <div
       role="button"
@@ -115,10 +123,10 @@ function TalkSurface({ error, languages, onMic, onDictateOthers, onLanguagesChan
       }}
       className="group/talk flex cursor-pointer flex-col rounded-[inherit] outline-none transition-colors hover:bg-accent focus-visible:ring-2 focus-visible:ring-ring focus-visible:ring-inset"
     >
-      {/* One sentence, centered: "Click to talk, or [dictate others]". The box is the mic; the
-          button in the sentence listens to the computer's audio instead. */}
+      {/* One sentence, centered: "Click to talk, or [dictate others] [conversation]". The box is
+          the mic; the buttons in the sentence listen to the computer's audio, or to both. */}
       <div className="flex flex-wrap items-center justify-center gap-x-2 gap-y-1.5 px-3.5 pt-3 pb-1">
-        {/* The mic stays with the sentence; only the button moves down when it does not fit. */}
+        {/* The mic stays with the sentence; the buttons move down together when they do not fit. */}
         <span className="flex items-center gap-2.5">
           <span className="grid size-7 shrink-0 place-items-center rounded-full bg-primary text-primary-foreground shadow-xs shadow-primary/24 transition-transform group-hover/talk:scale-105">
             <MicIcon className="size-3.5" />
@@ -127,20 +135,36 @@ function TalkSurface({ error, languages, onMic, onDictateOthers, onLanguagesChan
             {error ? `${error} Click to try again, or` : "Click to talk, or"}
           </span>
         </span>
-        <Button
-          variant="outline"
-          size="xs"
-          className="rounded-full before:rounded-full"
-          title="Listen to the computer's audio: someone you're talking to"
-          onClick={(event) => {
-            event.stopPropagation();
-            onDictateOthers();
-          }}
-          onKeyDown={(event) => event.stopPropagation()}
-        >
-          <MonitorSpeakerIcon />
-          dictate others
-        </Button>
+        <span className="flex items-center gap-1.5">
+          <Button
+            variant="outline"
+            size="xs"
+            className="rounded-full before:rounded-full"
+            title="Listen to the computer's audio: someone you're talking to"
+            onClick={(event) => {
+              event.stopPropagation();
+              onDictateOthers();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <MonitorSpeakerIcon />
+            dictate others
+          </Button>
+          <Button
+            variant="outline"
+            size="xs"
+            className="rounded-full before:rounded-full"
+            title="Listen to you and the computer's audio, each on its own, as a conversation"
+            onClick={(event) => {
+              event.stopPropagation();
+              onConversation();
+            }}
+            onKeyDown={(event) => event.stopPropagation()}
+          >
+            <UsersIcon />
+            conversation
+          </Button>
+        </span>
       </div>
       <div className="flex min-h-8 items-center justify-between gap-2 px-1.5 pb-1.5">
         <span onClick={(event) => event.stopPropagation()}>
@@ -156,7 +180,7 @@ function TalkSurface({ error, languages, onMic, onDictateOthers, onLanguagesChan
 }
 
 /** Under the text: languages, a mic to add more, and Copy, the main action. */
-function EditRow({ text, languages, onMic, onCopy, onLanguagesChange }: ComposerProps) {
+function EditRow({ text, dialogue, languages, onMic, onCopy, onLanguagesChange }: ComposerProps) {
   return (
     <>
       <LanguagePicker value={languages} onChange={onLanguagesChange} />
@@ -171,23 +195,72 @@ function EditRow({ text, languages, onMic, onCopy, onLanguagesChange }: Composer
         >
           <MicIcon />
         </Button>
-        <button
-          type="button"
-          className={cn(MESSAGE_ACTION_PILL, "h-8 px-3 sm:h-7")}
-          disabled={!text.trim()}
-          title="Copy, keep it in your messages, and start fresh (Ctrl+Enter)"
-          onClick={onCopy}
-        >
-          <CopyIcon className="size-3.5" />
-          Copy
-        </button>
+        {dialogue ? (
+          <CopyConversation dialogue={dialogue} onCopy={onCopy} />
+        ) : (
+          <button
+            type="button"
+            className={cn(MESSAGE_ACTION_PILL, "h-8 px-3 sm:h-7")}
+            disabled={!text.trim()}
+            title="Copy, keep it in your messages, and start fresh (Ctrl+Enter)"
+            onClick={() => onCopy("all")}
+          >
+            <CopyIcon className="size-3.5" />
+            Copy
+          </button>
+        )}
       </div>
     </>
   );
 }
 
+/**
+ * Copy for a conversation: the pill copies all of it; its chevron (T3's split primary button,
+ * ComposerPrimaryActions' "Implement" menu) offers one side only.
+ */
+function CopyConversation({ dialogue, onCopy }: { dialogue: DialogueBlock[]; onCopy(which: CopyWhich): void }) {
+  const said = (speaker: Speaker) => dialogue.some((turn) => turn.speaker === speaker && turn.text.trim());
+  return (
+    <div className="flex items-center">
+      <button
+        type="button"
+        className={cn(MESSAGE_ACTION_PILL, "h-8 rounded-r-none px-3 sm:h-7")}
+        disabled={!said("me") && !said("them")}
+        title="Copy the conversation, keep it in your messages, and start fresh (Ctrl+Enter)"
+        onClick={() => onCopy("all")}
+      >
+        <CopyIcon className="size-3.5" />
+        Copy
+      </button>
+      <Menu>
+        <MenuTrigger
+          render={
+            <button
+              type="button"
+              className={cn(MESSAGE_ACTION_PILL, "h-8 rounded-l-none border-l border-message-action-foreground/20 px-2 sm:h-7")}
+              aria-label="Copy options"
+            />
+          }
+        >
+          <ChevronDownIcon className="size-3.5" />
+        </MenuTrigger>
+        <MenuPopup align="end">
+          {/* Plain items, like T3's "Implement in a new thread". */}
+          <MenuItem onClick={() => onCopy("all")}>Copy conversation</MenuItem>
+          <MenuItem disabled={!said("me")} onClick={() => onCopy("me")}>
+            Copy mine only
+          </MenuItem>
+          <MenuItem disabled={!said("them")} onClick={() => onCopy("them")}>
+            Copy theirs only
+          </MenuItem>
+        </MenuPopup>
+      </Menu>
+    </div>
+  );
+}
+
 /** While recording: the timer and the wave, and Stop. */
-function RecordingRow({ phase, elapsedMs, levels, source, onSwitchSource, onStop }: ComposerProps) {
+function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: ComposerProps) {
   return (
     <>
       <span className="flex items-center gap-2 ps-2 text-muted-foreground text-xs tabular-nums">
@@ -196,19 +269,23 @@ function RecordingRow({ phase, elapsedMs, levels, source, onSwitchSource, onStop
         <Waveform levels={levels} className="ms-1" />
       </span>
       <div className="flex items-center gap-2">
-        {/* Switch between your voice and the computer's audio without stopping (T3's segmented toggle). */}
+        {/* Switch between your voice, both of you, and the computer's audio without stopping
+            (T3's segmented toggle). */}
         <ToggleGroup
           aria-label="Listen to"
           variant="segmented"
-          value={[source]}
+          value={[mode]}
           disabled={phase !== "recording"}
           onValueChange={(value) => {
             const next = value[0];
-            if (next === "mic" || next === "computer") onSwitchSource(next);
+            if (next === "mic" || next === "both" || next === "computer") onSwitchMode(next);
           }}
         >
           <Toggle aria-label="Your microphone" title="Your microphone" value="mic">
             <MicIcon className="size-3.5" />
+          </Toggle>
+          <Toggle aria-label="Conversation" title="Conversation: you and the computer's audio, each on its own" value="both">
+            <UsersIcon className="size-3.5" />
           </Toggle>
           <Toggle aria-label="The computer's audio" title="The computer's audio (someone you're talking to)" value="computer">
             <MonitorSpeakerIcon className="size-3.5" />
@@ -312,6 +389,45 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
   );
 }
 
+/**
+ * A conversation, as T3 Code shows a thread with a guest: your turns in your message bubble,
+ * theirs in the guest's bubble under their name (ConversationTurn). Read-only, like messages.
+ */
+function DialogueText({ phase, dialogue }: ComposerProps & { dialogue: DialogueBlock[] }) {
+  const listening = phase !== "idle";
+  const scrollRef = useRef<HTMLDivElement>(null);
+  // While recording, follow the newest words.
+  useLayoutEffect(() => {
+    const scroller = scrollRef.current;
+    if (scroller && listening) scroller.scrollTop = scroller.scrollHeight;
+  }, [dialogue, listening]);
+  return (
+    <div
+      ref={scrollRef}
+      data-no-drag
+      className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
+    >
+      {dialogue.length === 0 ? (
+        <div className={cn(FIELD_TEXT, "min-h-[1lh] text-center")}>
+          {listening && (
+            <span className="text-placeholder">
+              {phase === "starting" ? "Connecting" : "Listening"}
+              <AnimatedDots />
+            </span>
+          )}
+        </div>
+      ) : (
+        // The gap between messages in the list below the box.
+        <div className="flex flex-col gap-3">
+          {dialogue.map((turn) => (
+            <ConversationTurn key={turn.id} turn={turn} pending={turn.pending} />
+          ))}
+        </div>
+      )}
+    </div>
+  );
+}
+
 /** ".", "..", "...", repeating. Always three dots wide, so the centered word never shifts. */
 function AnimatedDots() {
   const [count, setCount] = useState(1);
@@ -333,7 +449,8 @@ function AnimatedDots() {
  * shows when there is room for it.
  */
 function Toolbar(props: ComposerProps) {
-  const { phase, text, durationMs, onClose, onOpenSettings } = props;
+  const { phase, durationMs, onClose, onOpenSettings } = props;
+  const text = props.dialogue ? props.dialogue.map((turn) => turn.text).join(" ") : props.text;
   const listening = phase !== "idle";
   return (
     <div data-slot="composer-toolbar" className="@container/footer px-2 pt-2">

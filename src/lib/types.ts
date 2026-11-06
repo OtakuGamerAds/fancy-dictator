@@ -1,3 +1,5 @@
+import type { Turn } from "./dialogue";
+
 export interface Settings {
   sonioxApiKey: string;
   /** Organization API key (snx_org_…), only for reading the balance. Optional. */
@@ -15,6 +17,8 @@ export interface HistoryEntry {
   text: string;
   createdAt: number;
   durationMs: number;
+  /** A conversation (you and the computer's audio): its turns; `text` is it written out. */
+  turns?: Turn[];
   /** How many recordings of the message are saved (set by the main process, electron/audio.cjs). */
   audioClips?: number;
 }
@@ -69,6 +73,8 @@ declare global {
   interface Window {
     api: DesktopApi;
     __fdSetUpdateState?: (state: UpdateState) => void;
+    /** `pnpm probe` only: a scripted stand-in for Soniox's socket. */
+    __fdTestSocket?: (source: "mic" | "computer") => WebSocket;
     __fdSnapshot?: {
       views(): string[];
       show(name: string): Promise<number>;

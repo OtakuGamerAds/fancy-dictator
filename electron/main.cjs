@@ -36,6 +36,9 @@ const WIDTH = 420;
 const HEIGHT = 760;
 const DEV_URL = process.env.VITE_DEV_SERVER_URL;
 const SNAPSHOT = process.env.FD_SNAPSHOT === "1";
+// `pnpm snapshot`/`pnpm probe` keep their settings, messages and audio in a folder of their
+// own, so they never touch (or save test messages into) the real ones.
+if (SNAPSHOT) app.setPath("userData", path.join(require("os").tmpdir(), "fancy-dictator-snapshot"));
 
 let win = null;
 let tray = null;
@@ -339,7 +342,9 @@ function registerIpc() {
       ? { models: [{ id: "stt-rt-v6", name: "stt-rt-v6" }, { id: "stt-rt-v5", name: "stt-rt-v5" }], latest: "stt-rt-v6", error: null }
       : models.listModels(String(apiKey || settings.sonioxApiKey), { force: true }),
   );
-  ipcMain.handle("models:resolve", () => models.resolveModel(settings.sonioxApiKey, settings.sonioxModel));
+  ipcMain.handle("models:resolve", () =>
+    SNAPSHOT ? "stt-rt-v6" : models.resolveModel(settings.sonioxApiKey, settings.sonioxModel),
+  );
   ipcMain.handle("settings:save", (_e, patch) => {
     const previous = settings.hotkey;
     settings = store.saveSettings(sanitize(patch || {}));
@@ -465,6 +470,34 @@ async function runSnapshots() {
     })()`);
     fs.writeFileSync(path.join(outDir, "7-model-picker.png"), (await win.webContents.capturePage(rect)).toPNG());
     console.log("[snapshot] 7-model-picker.png");
+  }
+  // A conversation's Copy menu, open.
+  await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5f-conversation-done")`);
+  await new Promise((r) => setTimeout(r, 500));
+  const copyOptions = await win.webContents.executeJavaScript(`(() => {
+    const el = document.querySelector('[aria-label="Copy options"]');
+    if (!el) return null;
+    const r = el.getBoundingClientRect();
+    return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+  })()`);
+  if (copyOptions) {
+    win.webContents.sendInputEvent({ type: "mouseDown", ...copyOptions, button: "left", clickCount: 1 });
+    win.webContents.sendInputEvent({ type: "mouseUp", ...copyOptions, button: "left", clickCount: 1 });
+    await new Promise((r) => setTimeout(r, 800));
+    const rect = await win.webContents.executeJavaScript(`(() => {
+      const card = document.querySelector("#root > div").getBoundingClientRect();
+      const popup = document.querySelector("[data-slot=menu-popup]")?.getBoundingClientRect();
+      const bottom = Math.ceil(Math.max(card.bottom, popup ? popup.bottom + 8 : 0));
+      return { x: Math.floor(card.left), y: Math.floor(card.top), width: Math.ceil(card.width), height: bottom - Math.floor(card.top) };
+    })()`);
+    fs.writeFileSync(path.join(outDir, "5h-conversation-copy-menu.png"), (await win.webContents.capturePage(rect)).toPNG());
+    console.log("[snapshot] 5h-conversation-copy-menu.png");
+    // Esc closes the menu only, not the window.
+    win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
+    win.webContents.sendInputEvent({ type: "keyUp", keyCode: "Escape" });
+    await new Promise((r) => setTimeout(r, 500));
+    const menuOpen = await win.webContents.executeJavaScript(`!!document.querySelector("[data-slot=menu-popup]")`);
+    console.log(`[snapshot] Esc on the Copy menu: menu ${menuOpen ? "still open" : "closed"}, window ${win.isVisible() ? "still shown" : "hidden"}`);
   }
   quitting = true;
   app.quit();

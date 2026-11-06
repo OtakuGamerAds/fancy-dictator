@@ -1,6 +1,7 @@
 import { CheckIcon, CopyIcon, Trash2Icon } from "lucide-react";
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
+import { ConversationTurn } from "~/components/ConversationTurn";
 import { InlineAudioPreview } from "~/components/files/InlineAudioPreview";
 import { Button } from "~/components/ui/button";
 import { UndoNotice } from "~/components/UndoNotice";
@@ -22,6 +23,8 @@ interface HistoryPanelProps {
 
 /** Opened by hand, the list shows this many; each "Show more" adds this many older ones. */
 const PAGE = 3;
+/** A folded conversation shows its first few turns, three lines each. */
+const FOLDED_TURNS = 3;
 
 /**
  * Recent transcriptions under the composer, drawn like your own messages in T3 Code's
@@ -107,11 +110,19 @@ function HistoryMessage({
   const [expanded, setExpanded] = useState(false);
   const [overflows, setOverflows] = useState(false);
   const textRef = useRef<HTMLParagraphElement>(null);
+  const turnsRef = useRef<HTMLDivElement>(null);
+  const turns = entry.turns?.length ? entry.turns : null;
 
   useLayoutEffect(() => {
-    const el = textRef.current;
+    const el = textRef.current ?? turnsRef.current;
     if (!el) return;
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
+    const clamped = (node: HTMLElement) => node.scrollHeight > node.clientHeight + 1;
+    const measure = () =>
+      setOverflows(
+        turns
+          ? turns.length > FOLDED_TURNS || [...el.querySelectorAll<HTMLElement>("[data-turn-text]")].some(clamped)
+          : clamped(el),
+      );
     measure();
     const observer = new ResizeObserver(measure);
     observer.observe(el);
@@ -124,49 +135,71 @@ function HistoryMessage({
     return () => clearTimeout(timer);
   }, [copied]);
 
+  // The voice it was dictated with, one clip per recording, above the text, as T3 lists the
+  // audio sent with a message.
+  const audio = entry.audioClips ? (
+    <div className="flex max-w-full flex-col gap-1">
+      {Array.from({ length: entry.audioClips }, (_, clip) => (
+        <InlineAudioPreview
+          key={clip}
+          name={entry.audioClips === 1 ? "Recording" : `Recording ${clip + 1}`}
+          audioId={entry.id}
+          clip={clip}
+          variant="chip"
+        />
+      ))}
+    </div>
+  ) : null;
+  const showMore = (overflows || expanded) && (
+    <button
+      type="button"
+      className="mt-1 cursor-pointer font-medium text-muted-foreground text-xs hover:text-foreground hover:underline"
+      onClick={() => setExpanded((v) => !v)}
+    >
+      {expanded ? "Show less" : "Show more"}
+    </button>
+  );
+
   return (
     <li className="group flex flex-col items-end">
-      <div
-        dir={textDirection(entry.text)}
-        data-no-drag
-        className={cn(
-          "min-w-0 max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground text-sm leading-relaxed",
-          BUBBLE_CHIP_CLASS_NAME,
-        )}
-      >
-        {/* The voice it was dictated with, one clip per recording, above the text, as T3 lists
-            the audio sent with a message. */}
-        {entry.audioClips ? (
-          <div className="mb-2 flex max-w-full flex-col gap-1">
-            {Array.from({ length: entry.audioClips }, (_, clip) => (
-              <InlineAudioPreview
-                key={clip}
-                name={entry.audioClips === 1 ? "Recording" : `Recording ${clip + 1}`}
-                audioId={entry.id}
-                clip={clip}
-                variant="chip"
-              />
-            ))}
-          </div>
-        ) : null}
-        {/* The clamp is on the text itself, not the padded bubble, so no half line peeks out. */}
-        <p
-          ref={textRef}
-          data-selectable
-          className={cn("whitespace-pre-wrap wrap-break-word", !expanded && "line-clamp-3")}
+      {turns ? (
+        // A conversation: its recording on its own (as T3 shows an audio-only message), then each
+        // turn as T3 shows a thread with a guest. Folded, the first few turns, 3 lines each.
+        <div ref={turnsRef} data-no-drag className="flex w-full flex-col items-end gap-3">
+          {audio && (
+            <div
+              dir={textDirection(turns.map((turn) => turn.text).join(" "))}
+              className={cn("max-w-[80%] text-sm leading-relaxed", BUBBLE_CHIP_CLASS_NAME)}
+            >
+              {audio}
+            </div>
+          )}
+          {(expanded ? turns : turns.slice(0, FOLDED_TURNS)).map((turn, index) => (
+            <ConversationTurn key={index} turn={turn} clamp={!expanded} />
+          ))}
+          {showMore && <div className="-mt-2 pe-1">{showMore}</div>}
+        </div>
+      ) : (
+        <div
+          dir={textDirection(entry.text)}
+          data-no-drag
+          className={cn(
+            "min-w-0 max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground text-sm leading-relaxed",
+            BUBBLE_CHIP_CLASS_NAME,
+          )}
         >
-          {entry.text}
-        </p>
-        {(overflows || expanded) && (
-          <button
-            type="button"
-            className="mt-1 cursor-pointer font-medium text-muted-foreground text-xs hover:text-foreground hover:underline"
-            onClick={() => setExpanded((v) => !v)}
+          {audio && <div className="mb-2">{audio}</div>}
+          {/* The clamp is on the text itself, not the padded bubble, so no half line peeks out. */}
+          <p
+            ref={textRef}
+            data-selectable
+            className={cn("whitespace-pre-wrap wrap-break-word", !expanded && "line-clamp-3")}
           >
-            {expanded ? "Show less" : "Show more"}
-          </button>
-        )}
-      </div>
+            {entry.text}
+          </p>
+          {showMore}
+        </div>
+      )}
       <div className="mt-1 flex h-6 items-center gap-0.5 pe-1 text-muted-foreground text-xs">
         <div className="flex items-center gap-0.5 opacity-0 transition-opacity group-hover:opacity-100 has-focus-visible:opacity-100">
           <Button

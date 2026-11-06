@@ -53,6 +53,8 @@ registerProcessor("pcm-capture", PcmCapture);
 
 /** Where the audio comes from: your microphone, or what the computer is playing (someone you are talking to). */
 export type AudioSource = "mic" | "computer";
+/** What a recording listens to: one source, or both as a conversation (a stream each). */
+export type ListenMode = AudioSource | "both";
 
 export interface SonioxSession {
   /** Stop listening, wait for Soniox to finalize the last words, and return the full text. */
@@ -71,7 +73,11 @@ export interface StartOptions {
   /** Where to listen first (defaults to the microphone). */
   source?: AudioSource;
   deviceId?: string;
-  onText(finalText: string, pendingText: string): void;
+  /**
+   * The settled text so far, the words still being decided on, and where in the settled text
+   * the speaker stopped since the last call (Soniox endpoints; conversation mode ends turns there).
+   */
+  onText(finalText: string, pendingText: string, endpoints: number[]): void;
   onLevel?(level: number): void;
   /** Every chunk of audio sent to Soniox (16 kHz, mono, 16-bit PCM), to keep with the message. */
   onAudio?(pcm: ArrayBuffer): void;
@@ -160,7 +166,8 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
 
   // Audio recorded before the socket opens is queued, not lost. "" means end of audio.
   const queue: (ArrayBuffer | string)[] = [];
-  const ws = new WebSocket(WS_URL);
+  // `pnpm probe` stands in for Soniox with a scripted socket per source.
+  const ws = window.__fdTestSocket?.(options.source ?? "mic") ?? new WebSocket(WS_URL);
 
   const sendOrQueue = (data: ArrayBuffer | string) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(data);
@@ -211,14 +218,16 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     }
     if (Array.isArray(message.tokens)) {
       let nextPending = "";
+      const endpoints: number[] = [];
       for (const token of message.tokens) {
         if (typeof token?.text !== "string") continue;
+        if (token.text === "<end>") endpoints.push(finalText.length);
         if (token.text === "<end>" || token.text === "<fin>") continue;
         if (token.is_final) finalText += token.text;
         else nextPending += token.text;
       }
       pendingText = nextPending;
-      options.onText(finalText, pendingText);
+      options.onText(finalText, pendingText, endpoints);
     }
     if (message.finished) resolveFinished();
   };
