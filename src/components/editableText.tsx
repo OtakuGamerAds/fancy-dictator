@@ -19,12 +19,14 @@ export function EditableText({
   onInput,
   onCommit,
   onFocus,
+  onBlur,
 }: {
   text: string;
   className?: string;
   onInput?: (text: string) => void;
   onCommit?: (text: string) => void;
   onFocus?: () => void;
+  onBlur?: () => void;
 }) {
   const ref = useRef<HTMLSpanElement>(null);
   const before = useRef(text); // the words when editing started
@@ -66,7 +68,10 @@ export function EditableText({
         event.preventDefault(); // not the window's Esc, and no line break
         event.currentTarget.blur();
       }}
-      onBlur={(event) => finish(event.currentTarget)}
+      onBlur={(event) => {
+        finish(event.currentTarget);
+        onBlur?.();
+      }}
     />
   );
 }

@@ -1,11 +1,10 @@
 import { CheckIcon, ChevronLeftIcon, ChevronRightIcon, CopyIcon, Trash2Icon } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useRef, useState } from "react";
 
 import {
   ConversationTurn,
-  FOLDED_TEXT_CLASS_NAME,
-  FOLDED_TEXT_FADE,
-  ShowMoreButton,
+  editOnClick,
+  useFold,
   speakerColors,
 } from "~/components/ConversationTurn";
 import { EditableText } from "~/components/editableText";
@@ -143,10 +142,6 @@ function HistoryMessage({
   entry: HistoryEntry;
   onEdit(entry: HistoryEntry): void;
 }) {
-  // Long messages show 3 lines and a "Show more" link, like a post on social media.
-  const [expanded, setExpanded] = useState(false);
-  const [overflows, setOverflows] = useState(false);
-  const textRef = useRef<HTMLParagraphElement>(null);
   const turns = entry.turns?.length ? entry.turns : null;
   const numbers = turns && speakerNumbers(turns);
   // A turn edited: the written-out conversation (what Copy takes) follows the turns.
@@ -156,16 +151,8 @@ function HistoryMessage({
     onEdit({ ...entry, turns: next, text: formatConversation(next) });
   };
 
-  // A single message folds to 3 lines (a conversation's turns fold each on its own).
-  useLayoutEffect(() => {
-    const el = textRef.current;
-    if (!el) return;
-    const measure = () => setOverflows(el.scrollHeight > el.clientHeight + 1);
-    measure();
-    const observer = new ResizeObserver(measure);
-    observer.observe(el);
-    return () => observer.disconnect();
-  }, [entry.text, expanded]);
+  // A single message folds to 3 lines (a conversation's turns fold each on their own).
+  const fold = useFold(!turns, entry.text);
 
   // The voice it was dictated with, one clip per recording, above the text, as T3 lists the
   // audio sent with a message.
@@ -182,15 +169,12 @@ function HistoryMessage({
       ))}
     </div>
   ) : null;
-  const showMore = (overflows || expanded) && (
-    <ShowMoreButton expanded={expanded} onToggle={() => setExpanded((v) => !v)} />
-  );
 
   return (
     <li className="flex flex-col items-end">
       {turns ? (
         // A conversation: its recording on its own (as T3 shows an audio-only message), then each
-        // turn as T3 shows a thread with a guest, each folded to 3 lines with its own "Show more".
+        // turn as T3 shows a thread with a guest, each folded to 3 lines until clicked into.
         <div className="flex w-full flex-col items-end gap-3">
           {audio && (
             <div
@@ -215,25 +199,26 @@ function HistoryMessage({
           dir={textDirection(entry.text)}
           data-no-drag
           className={cn(
-            "min-w-0 max-w-[80%] rounded-2xl bg-message p-3 text-message-foreground text-sm leading-relaxed",
+            "min-w-0 max-w-[80%] cursor-text rounded-2xl bg-message p-3 text-message-foreground text-sm leading-relaxed",
             BUBBLE_CHIP_CLASS_NAME,
           )}
+          onClick={editOnClick}
         >
           {audio && <div className="mb-2">{audio}</div>}
           {/* The clamp is on the text itself, not the padded bubble, so no half line peeks out. */}
           <p
-            ref={textRef}
+            ref={fold.textRef}
             data-selectable
-            className={cn("whitespace-pre-wrap wrap-break-word", !expanded && FOLDED_TEXT_CLASS_NAME)}
-            style={overflows && !expanded ? FOLDED_TEXT_FADE : undefined}
+            className={cn("whitespace-pre-wrap wrap-break-word", fold.textClassName)}
+            style={fold.textStyle}
           >
             <EditableText
               text={entry.text}
               onCommit={(text) => onEdit({ ...entry, text })}
-              onFocus={() => setExpanded(true)}
+              onFocus={fold.onFocus}
+              onBlur={fold.onBlur}
             />
           </p>
-          {showMore}
         </div>
       )}
     </li>
