@@ -720,6 +720,9 @@ export function App() {
       onPointerDown={(event) => {
         const target = event.target as HTMLElement;
         if (event.button !== 0 || target.closest(NO_DRAG)) return;
+        // Open lists and menus sit outside the card (portals) but still pass their presses
+        // through React to it: they are theirs, not a drag.
+        if (!event.currentTarget.contains(target)) return;
         // A list's scrollbar scrolls it (on the left for Arabic): only inside it drags.
         const x = event.nativeEvent.offsetX;
         if (x < target.clientLeft || x >= target.clientLeft + target.clientWidth) return;

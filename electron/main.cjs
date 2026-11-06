@@ -557,7 +557,7 @@ async function runSnapshots() {
   }
   // The session picker under the list, open.
   if (wanted("5m-session-picker")) {
-    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("1-empty")`);
     await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
     await new Promise((r) => setTimeout(r, 500));
     const trigger = await win.webContents.executeJavaScript(`(() => {
@@ -571,13 +571,25 @@ async function runSnapshots() {
       const rect = await win.webContents.executeJavaScript(CARD_RECT);
       fs.writeFileSync(path.join(outDir, "5m-session-picker.png"), (await win.webContents.capturePage(rect)).toPNG());
       console.log("[snapshot] 5m-session-picker.png");
-      win.webContents.sendInputEvent({ type: "keyDown", keyCode: "Escape" });
-      await new Promise((r) => setTimeout(r, 300));
+      // Picking the third session shows it.
+      const item = await win.webContents.executeJavaScript(`(() => {
+        const r = document.querySelectorAll("[data-slot=select-item]")[2]?.getBoundingClientRect();
+        return r && { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+      })()`);
+      if (item) {
+        win.webContents.sendInputEvent({ type: "mouseDown", ...item, button: "left", clickCount: 1 });
+        win.webContents.sendInputEvent({ type: "mouseUp", ...item, button: "left", clickCount: 1 });
+        await new Promise((r) => setTimeout(r, 500));
+      }
+      const shown = await win.webContents.executeJavaScript(
+        `[document.querySelector('[aria-label="Session"]')?.textContent, document.querySelector("#root li [data-selectable]")?.textContent?.slice(0, 30)]`,
+      );
+      console.log(`[snapshot] picked the third session: ${JSON.stringify(shown)}`);
     }
   }
   // A real click 60% along a message's recording (from its play button) jumps there.
   if (wanted("5j-audio-jump")) {
-    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("5d-cleared")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("1-empty")`);
     await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
     await new Promise((r) => setTimeout(r, 1500)); // the recordings load
     const chip = await win.webContents.executeJavaScript(`(() => {
