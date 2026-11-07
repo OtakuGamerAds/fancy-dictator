@@ -17,6 +17,8 @@ const DEFAULT_SETTINGS = {
   // Replay: your mic and the computer's audio kept for this many minutes, to go back to.
   replay: false,
   replayMinutes: 60,
+  // The language selected words are translated into.
+  translateTo: "en",
   cardAnchor: null,
 };
 

@@ -36,9 +36,11 @@ export function EditableText({
     if (!element) return;
     const shown = element.textContent ?? "";
     if (shown === text) return;
-    if (document.activeElement !== element) element.textContent = text;
-    // Being edited: only words added at the end are taken, after the caret's text.
-    else if (text.startsWith(shown)) element.append(text.slice(shown.length));
+    // New words at the end are added after what is there, so the caret and any selected words
+    // (to translate while it is being recorded) stay where they are.
+    if (text.startsWith(shown)) element.append(text.slice(shown.length));
+    // Changed otherwise (another session shown, a turn rewritten): replaced, unless being edited.
+    else if (document.activeElement !== element) element.textContent = text;
   }, [text]);
 
   const finish = (element: HTMLElement) => {

@@ -28,6 +28,7 @@ const audio = require("./audio.cjs");
 const replay = require("./replay.cjs");
 const sonioxAsync = require("./sonioxAsync.cjs");
 const health = require("./health.cjs");
+const translate = require("./translate.cjs");
 
 /**
  * The window never changes size: resizing a transparent window makes Windows flash the old
@@ -339,6 +340,7 @@ function sanitize(patch) {
   if (typeof patch.runOnStartup === "boolean") out.runOnStartup = patch.runOnStartup;
   if (typeof patch.replay === "boolean") out.replay = patch.replay;
   if (Number.isFinite(patch.replayMinutes)) out.replayMinutes = Math.min(90, Math.max(1, Math.round(patch.replayMinutes)));
+  if (typeof patch.translateTo === "string" && /^[a-z]{2,3}$/.test(patch.translateTo)) out.translateTo = patch.translateTo;
   return out;
 }
 
@@ -394,6 +396,10 @@ function registerIpc() {
   ipcMain.handle("replay:trim", (_e, ms) => replay.trimBefore(Number(ms)));
   ipcMain.handle("replay:clear", () => replay.clear());
   ipcMain.handle("replay:transcribe", (_e, webm) => sonioxAsync.transcribe(settings.sonioxApiKey, webm, settings.languages));
+  // Selected words translated (Google Translate); the snapshot run never goes online.
+  ipcMain.handle("translate:text", (_e, text, to) =>
+    SNAPSHOT ? { text: "a quick message to the work team", from: "ar" } : translate.translate(text, to),
+  );
   // Deleted messages can no longer be brought back: erase their audio, unless one was restored.
   ipcMain.handle("audio:discard", (_e, ids) => {
     const history = store.getHistory();
@@ -621,11 +627,45 @@ async function runSnapshots() {
       console.log(`[snapshot] 5j-audio-jump.png (after the click: ${label})`);
     }
   }
+  // Words selected in a session: the bar offers to translate them; translated, under the bubble.
+  if (wanted("5n-translate")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("1-empty")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("2-history")`);
+    await win.webContents.executeJavaScript(`(() => {
+      const text = document.querySelector("#root li [data-selectable] [contenteditable]")?.firstChild
+        ?? document.querySelector("#root li [data-selectable]")?.firstChild;
+      const range = document.createRange();
+      range.setStart(text, 10);
+      range.setEnd(text, Math.min(text.length, 30));
+      getSelection().removeAllRanges();
+      getSelection().addRange(range);
+    })()`);
+    await new Promise((r) => setTimeout(r, 300));
+    const shot = async (name) =>
+      fs.writeFileSync(path.join(outDir, name), (await win.webContents.capturePage(await win.webContents.executeJavaScript(CARD_RECT))).toPNG());
+    await shot("5n-translate-selected.png");
+    await win.webContents.executeJavaScript(`[...document.querySelectorAll("button")].find((b) => b.getAttribute("aria-label") === "Translate")?.click()`);
+    await new Promise((r) => setTimeout(r, 400));
+    await shot("5n-translate-done.png");
+    const picker = await win.webContents.executeJavaScript(`(() => {
+      const r = document.querySelector('[aria-label="Translate into"]')?.getBoundingClientRect();
+      return r && { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) };
+    })()`);
+    if (picker) {
+      win.webContents.sendInputEvent({ type: "mouseDown", ...picker, button: "left", clickCount: 1 });
+      win.webContents.sendInputEvent({ type: "mouseUp", ...picker, button: "left", clickCount: 1 });
+      await new Promise((r) => setTimeout(r, 400));
+      await shot("5n-translate-picker.png");
+    }
+    const box = await win.webContents.executeJavaScript(`document.querySelector("[data-translation]")?.textContent`);
+    console.log(`[snapshot] 5n-translate (${box})`);
+  }
   // Recording: wheel up to read, more words come and it stays put; "Scroll to end" goes back.
   if (wanted("4c-scrolled-up")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("1-empty")`);
     await win.webContents.executeJavaScript(`window.__fdSnapshot.show("3-recording")`);
     await win.webContents.executeJavaScript(`window.__fdSnapshot.show("4-recording-long")`);
-    const SCROLLER = `document.querySelector("#root .max-h-52.overflow-y-auto")`;
+    const SCROLLER = `document.querySelector("#root ul.overflow-y-auto")`;
     const state = `(() => { const s = ${SCROLLER}; return { top: Math.round(s.scrollTop), end: Math.round(s.scrollHeight - s.clientHeight), button: [...document.querySelectorAll("button")].some((b) => b.textContent.includes("Scroll to end")) }; })()`;
     const at = await win.webContents.executeJavaScript(`(() => { const r = ${SCROLLER}.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
     const before = await win.webContents.executeJavaScript(state);

@@ -11,6 +11,8 @@ export interface Settings {
   /** Replay: your mic and the computer's audio kept to go back to, for `replayMinutes` (1–90). */
   replay: boolean;
   replayMinutes: number;
+  /** The language selected words are translated into. */
+  translateTo: string;
 }
 
 /** A piece of Replay's recording (about half a minute of one source). */
@@ -89,6 +91,8 @@ export interface DesktopApi {
   trimReplay(ms: number): Promise<void>;
   clearReplay(): Promise<void>;
   transcribeReplay(webm: ArrayBuffer): Promise<TimedToken[]>;
+  /** Selected words in another language (Google Translate), or why not. */
+  translate(text: string, to: string): Promise<{ text: string; from: string | null } | { error: string }>;
   /** Erase the audio of deleted messages (any that are back in the history are kept). */
   discardAudio(ids: string[]): Promise<void>;
   copy(text: string): Promise<void>;

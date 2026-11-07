@@ -1,7 +1,7 @@
 import { useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { Composer, type Phase } from "~/components/Composer";
-import { HistoryPanel } from "~/components/HistoryPanel";
+import { HistoryPanel, type LiveSession } from "~/components/HistoryPanel";
 import { type ReplayRequest, ReplayView } from "~/components/ReplayView";
 import { SettingsView } from "~/components/SettingsView";
 import { type RecordedAudio, RecordingAudio, recordedAudio } from "~/lib/clipRecorder";
@@ -75,16 +75,22 @@ export function App() {
   const [history, setHistory] = useState<HistoryEntry[]>([]);
   const [view, setView] = useState<View>("main");
   const [historyOpen, setHistoryOpen] = useState(false);
-  // Messages cleared from the box since the window opened. Right after clearing, the list opens
-  // showing just these; opening it with the arrow shows the latest few as usual.
-  // Bumped when a session moves below the box: the list starts over at the latest one.
-  const [historyKey, setHistoryKey] = useState(0);
+  // The session shown under the box (null: the latest), or a new one with nothing in it yet
+  // (＋). Recording goes into the one shown.
+  const [shownId, setShownId] = useState<string | null>(null);
+  const [blankSession, setBlankSession] = useState(false);
+  const showSession = (id: string | null) => {
+    setShownId(id);
+    setBlankSession(false);
+  };
   const [settingsNotice, setSettingsNotice] = useState<string | null>(null);
 
   // The text box. Each dictation is appended to it; it is one history entry until cleared.
   const [text, setText] = useState("");
   const [durationMs, setDurationMs] = useState(0);
   const entryId = useRef<string | null>(null);
+  // When the session in the box began (one continued keeps its own).
+  const entryCreatedAt = useRef<number | null>(null);
 
   const [phase, setPhaseState] = useState<Phase>("idle");
   const [pendingText, setPendingText] = useState("");
@@ -98,7 +104,7 @@ export function App() {
   // The recording's streams: one, or two in a conversation (your microphone and the computer).
   const lanesRef = useRef<Lane[]>([]);
   const laneSeq = useRef(0);
-  const latest = useLatest({ settings, view, startedAt, text, durationMs, historyOpen });
+  const latest = useLatest({ settings, view, startedAt, text, durationMs, historyOpen, history, shownId, blankSession });
 
   const setPhase = (next: Phase) => {
     phaseRef.current = next;
@@ -118,6 +124,7 @@ export function App() {
 
   // Deleting or clearing shows T3's undo notice; Ctrl+Z (or its button) brings things back.
   const latestHistory = useLatest(history);
+  const latestShown = useLatest(shownId);
 
   const restoreEntries = async (entries: HistoryEntry[]) => {
     const merged = [...latestHistory.current.filter((e) => !entries.some((r) => r.id === e.id)), ...entries];
@@ -130,6 +137,12 @@ export function App() {
     const removed = current.filter((entry) => ids.includes(entry.id));
     if (removed.length === 0) return;
     const remaining = current.filter((entry) => !ids.includes(entry.id));
+    const shown = latestShown.current;
+    if (shown && ids.includes(shown)) {
+      const at = current.findIndex((entry) => entry.id === shown);
+      const next = current.slice(at + 1).find((entry) => !ids.includes(entry.id)) ?? remaining.at(-1);
+      showSession(next?.id ?? null);
+    }
     setHistory(await window.api.replaceHistory(remaining));
     // Nothing left to show: fold the drawer up (Ctrl+Z still brings the messages back).
     if (remaining.length === 0) setHistoryOpen(false);
@@ -214,7 +227,10 @@ export function App() {
   /** The recording ended with nothing to keep: drop its clip. */
   const dropClip = () => boxClips.current.pop()?.cancel();
 
-  /** Save a message, with each recording made into it since it was last saved as a clip. */
+  /**
+   * Save a session, with each recording made into it since it was last saved as a clip. One
+   * continued keeps its place in the list; a new one goes first.
+   */
   const saveEntry = async (entry: HistoryEntry) => {
     const clips = boxClips.current;
     boxClips.current = [];
@@ -222,7 +238,12 @@ export function App() {
       const parts = await recording.stop();
       if (parts.length) await window.api.addAudioClips(entry.id, parts);
     }
-    setHistory(await window.api.addHistory(entry));
+    const saved = await window.api.getHistory();
+    setHistory(
+      saved.some((old) => old.id === entry.id)
+        ? await window.api.replaceHistory(saved.map((old) => (old.id === entry.id ? entry : old)))
+        : await window.api.addHistory(entry),
+    );
   };
 
   /** The message the box makes now. */
@@ -231,7 +252,7 @@ export function App() {
     return {
       id: entryId.current ?? crypto.randomUUID(),
       text,
-      createdAt: Date.now(),
+      createdAt: entryCreatedAt.current ?? Date.now(),
       durationMs,
       ...(turns?.length ? { turns } : {}),
     };
@@ -245,6 +266,17 @@ export function App() {
     writeText("");
     setDurationMs(0);
     entryId.current = null;
+    entryCreatedAt.current = null;
+  };
+
+  /** Continue a saved session: the box takes its words (and turns), and saves back into it. */
+  const continueEntry = (entry: HistoryEntry) => {
+    clearText();
+    entryId.current = entry.id;
+    entryCreatedAt.current = entry.createdAt;
+    setDurationMs(entry.durationMs);
+    if (entry.turns?.length) writeTurns(entry.turns.map((turn) => ({ ...turn, id: newTurnId() })));
+    else writeText(entry.text);
   };
 
   /**
@@ -265,8 +297,8 @@ export function App() {
       const entry = boxEntry(trimmed, duration);
       await saveEntry(entry);
       if (showInHistory) {
-        // The session moves below the box, where it is seen landing.
-        setHistoryKey((key) => key + 1);
+        // The session stays shown under the box, as it was while recording.
+        showSession(entry.id);
         setHistoryOpen(true);
       }
     }
@@ -396,7 +428,10 @@ export function App() {
     })();
   };
 
-  /** Start listening. New words are appended to the text box unless `fresh` empties it first. */
+  /**
+   * Start listening, into the session shown under the box; `fresh` (the shortcut, Replay), a
+   * new session (＋), or none shown starts a new one.
+   */
   const startRecording = useCallback(
     async (fresh = false, from: Exclude<ListenMode, "none"> = "mic", asConversation = false) => {
       if (phaseRef.current !== "idle") return;
@@ -407,11 +442,17 @@ export function App() {
         setView("settings");
         return;
       }
-      if (fresh) clearText();
+      const { history: saved, historyOpen: open, shownId: shown, blankSession: blank } = latest.current;
+      const continued = !fresh && open && !blank ? (saved.find((entry) => entry.id === shown) ?? saved[0]) : undefined;
+      if (continued) continueEntry(continued);
+      else clearText();
+      entryId.current ??= crypto.randomUUID();
       setPhase("starting");
       setMode(from);
       setView("main");
-      setHistoryOpen(false); // the new session alone, until it moves below
+      // It is shown where it is saved, filling in as you speak.
+      showSession(entryId.current);
+      setHistoryOpen(true);
       setError(null);
       spokenEnd.current = null;
       textAtStart.current = textRef.current;
@@ -595,7 +636,7 @@ export function App() {
       setHistory(await window.api.addHistory(entry));
       await cleanUpAfter();
       // Shown below the box like any session that just ended.
-      setHistoryKey((key) => key + 1);
+      showSession(entry.id);
       setHistoryOpen(true);
       setView("main");
     } catch (failure) {
@@ -644,10 +685,10 @@ export function App() {
     }
     for (const lane of lanes) lane.pending = "";
     setPendingText("");
-    setPhase("idle");
     const combined = textRef.current.trim();
     if (combined === textAtStart.current.trim()) {
       dropClip(); // nothing was said: keep no clip of it
+      setPhase("idle");
       if (!combined) setError("No speech detected.");
       return { text: combined, durationMs: latest.current.durationMs };
     }
@@ -656,6 +697,7 @@ export function App() {
     if (!turnsRef.current) writeText(combined);
     setDurationMs(duration);
     await saveEntry(boxEntry(combined, duration));
+    setPhase("idle");
     return { text: combined, durationMs: duration };
   };
 
@@ -830,6 +872,33 @@ export function App() {
 
   // ── Render ─────────────────────────────────────────────────────────────
 
+  const continuedEntry = history.find((entry) => entry.id === entryId.current);
+  const live: LiveSession | null =
+    phase === "idle"
+      ? null
+      : {
+          entry: {
+            id: entryId.current ?? "live",
+            text,
+            createdAt: entryCreatedAt.current ?? startedAt,
+            durationMs,
+            audioClips: continuedEntry?.audioClips,
+            audioParts: continuedEntry?.audioParts,
+          },
+          blocks,
+          pending: joinSpoken(text, pendingText, spokenEnd.current !== null && text === spokenEnd.current).slice(text.length),
+          status: phase === "starting" ? "Connecting" : "Listening",
+          pastPending,
+          onTextInput: (value) => {
+            releaseUndoShortcut();
+            writeText(value);
+          },
+          onTurnInput: (id, value) => {
+            dialogueRef.current?.editTurn(id, value);
+            showDialogue();
+          },
+        };
+
   return (
     // The window is T3 Code's black app background; only the text box gets the composer color.
     // The card hugs the window's right edge, so the ✕ in its corner stays under the mouse
@@ -863,31 +932,17 @@ export function App() {
           <>
             <Composer
               phase={phase}
-              text={text}
-              dialogue={blocks}
-              pendingText={pendingText}
-              pendingContinues={spokenEnd.current !== null && text === spokenEnd.current}
               error={error}
               elapsedMs={durationMs + (phase === "idle" ? 0 : now - startedAt)}
-              durationMs={durationMs}
               levels={levels}
-              historyOpen={historyOpen}
+              historyOpen={historyOpen || live !== null}
               historyCount={history.length}
-              onTextChange={(value) => {
-                releaseUndoShortcut();
-                writeText(value);
-              }}
               onMic={() => void startRecording()}
               onConversation={() => void startRecording(false, "both")}
               onReplay={replayMinutes ? () => setView("replay") : undefined}
-              pastPending={pastPending}
               mode={mode}
               onSwitchMode={(next) => void switchMode(next)}
-              onTurnEdit={(id, text) => {
-                dialogueRef.current?.editTurn(id, text);
-                showDialogue();
-              }}
-              // Stop ends the session: it is saved and moves below, and the box is ready for the next.
+              // Stop ends the recording: the session is saved where it is shown.
               onStop={() => void finishSession()}
               languages={settings?.languages ?? []}
               onLanguagesChange={(languages) => {
@@ -897,7 +952,7 @@ export function App() {
               }}
               onToggleHistory={() => {
                 // Opened by hand, the list starts at the latest session.
-                if (!historyOpen) setHistoryKey((key) => key + 1);
+                if (!historyOpen) showSession(null);
                 setHistoryOpen(!historyOpen);
               }}
               // Closes the window; hiding saves the box and finishes a recording (see onHidden).
@@ -907,11 +962,24 @@ export function App() {
                 setView("settings");
               }}
             />
-            {historyOpen && (
+            {(historyOpen || live) && (
               <HistoryPanel
-                key={historyKey}
                 history={history}
-                showUndo={text.length > 0}
+                selectedId={shownId}
+                blank={blankSession}
+                live={live}
+                onSelect={showSession}
+                onNewSession={() => {
+                  setShownId(null);
+                  setBlankSession(true);
+                }}
+                showUndo={phase !== "idle"}
+                translateTo={settings?.translateTo ?? "en"}
+                onTranslateToChange={(translateTo) => {
+                  if (!settings) return;
+                  setSettings({ ...settings, translateTo });
+                  void window.api.saveSettings({ translateTo });
+                }}
                 onCopy={copy}
                 onEdit={(entry) => void editEntry(entry)}
                 onDelete={(id) => void deleteEntries([id])}
@@ -1054,11 +1122,12 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
     sockets[source]?.emit(tokens);
     await wait(60);
   };
+  // The session shown under the box (where a recording goes).
   const box = () => {
-    const turns = [...document.querySelectorAll<HTMLElement>("[data-slot=composer-box] [data-speaker]")];
+    const turns = [...document.querySelectorAll<HTMLElement>("#root li [data-speaker]")];
     if (turns.length === 0) {
-      const plain = document.querySelector<HTMLTextAreaElement>("[data-slot=composer-box] textarea");
-      return plain ? `plain: ${plain.value}` : "(empty)";
+      const plain = document.querySelector<HTMLElement>("#root li [data-selectable]");
+      return plain ? `plain: ${plain.textContent}` : "(empty)";
     }
     return turns
       .map((turn) => {
@@ -1096,7 +1165,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await say("computer", "", "Sorry");
   steps.interrupt = box();
   // Edited while recording: the words still coming for that turn land after the edit.
-  const editable = document.querySelector<HTMLElement>("[data-slot=composer-box] [data-speaker] [contenteditable]");
+  const editable = document.querySelector<HTMLElement>("#root li [data-speaker] [contenteditable]");
   if (editable) {
     editable.focus();
     editable.textContent = "Hi, did";
@@ -1178,13 +1247,38 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
     x.setHistoryOpen(false);
   }
 
-  // 6. Plain dictation that becomes a conversation midway.
-  x.setBlocks(null);
-  x.setText("");
+  // 6. ＋ a new session; plain dictation into it that becomes a conversation midway.
+  x.setHistoryOpen(true);
   await wait(200);
+  await click('[aria-label="New session"]');
+  steps.newSession = box();
   await click('[aria-label="Click to talk"]');
-  await say("mic", "Plain words", "");
+  await say("mic", "Plain words", " still being said");
   steps.plain = box();
+  // Faint words (still being recognized) selected: the bubble holds still while they are, so
+  // the selection stays as they change; once nothing is selected, it catches up.
+  const faint = document.querySelector("#root li [data-selectable] bdi");
+  faint?.dispatchEvent(new PointerEvent("pointerdown", { bubbles: true, button: 0 }));
+  await wait(50);
+  const faintText = faint?.firstChild;
+  if (faintText) {
+    const range = document.createRange();
+    range.setStart(faintText, 0);
+    range.setEnd(faintText, 5);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  }
+  document.dispatchEvent(new PointerEvent("pointerup", { bubbles: true }));
+  await say("mic", "", " still being said right now");
+  await say("mic", " still being said", " right now");
+  steps.faintSelected = {
+    selected: getSelection()?.toString(),
+    translateShown: !!document.querySelector('[aria-label="Translate"]'),
+    shown: box(),
+  };
+  getSelection()?.removeAllRanges();
+  await wait(100);
+  steps.caughtUp = box();
   await click(`[aria-label="The computer's audio"]`);
   await say("mic", " and more.", "", true);
   await say("computer", "A reply.", "", true);
@@ -1192,6 +1286,38 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   findStop()?.click();
   await wait(1500);
   steps.afterStop = box();
+  const sessions = (await window.api.getHistory()).length;
+  // 7. Talking again carries on in the session shown: the same one, a second recording.
+  await click('[aria-label="Click to talk"]');
+  steps.continuedLive = box();
+  // Words selected while it is being recorded stay selected as more come, to be translated.
+  const first = document.querySelector("#root li [data-speaker] [contenteditable]")?.firstChild;
+  if (first) {
+    const range = document.createRange();
+    range.setStart(first, 0);
+    range.setEnd(first, 11);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  }
+  await wait(100);
+  await say("computer", "More words now.", "", true);
+  await say("mic", "Continued.", "", true);
+  steps.selectedWhileLive = {
+    selected: getSelection()?.toString(),
+    translateShown: !!document.querySelector('[aria-label="Translate"]'),
+  };
+  document.querySelector<HTMLElement>('[aria-label="Translate"]')?.click();
+  await wait(300);
+  steps.translatedLive = document.querySelector("[data-translation]")?.textContent;
+  findStop()?.click();
+  await wait(1500);
+  const after = await window.api.getHistory();
+  steps.continued = {
+    sameCount: after.length === sessions,
+    text: after[0]?.text,
+    recordings: new Set(after[0]?.audioParts?.map((part) => part.recording)).size,
+    shown: box(),
+  };
   window.__fdTestSocket = undefined;
   return steps;
 }
@@ -1358,6 +1484,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
       micDeviceId: "",
       replay: true,
       replayMinutes: 60,
+      translateTo: "en",
       languages: ["ar", "en"],
       runOnStartup: false,
     };

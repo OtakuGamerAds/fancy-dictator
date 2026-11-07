@@ -10,55 +10,36 @@ import {
   SquareIcon,
   UsersIcon,
 } from "lucide-react";
-import { useEffect, useLayoutEffect, useRef, useState } from "react";
+import { useEffect, useState } from "react";
 
-import { ConversationTurn } from "~/components/ConversationTurn";
-import { ScrollToEndButton, useFollowEnd } from "~/components/FollowEnd";
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { UndoNotice } from "~/components/UndoNotice";
 import { UpdateButton } from "~/components/UpdateButton";
 import { Waveform } from "~/components/Waveform";
-import { type DialogueBlock, speakerNumbers } from "~/lib/dialogue";
 import type { ListenMode } from "~/lib/soniox";
-import { cn, countWords, formatDuration, joinSpoken, textDirection } from "~/lib/utils";
+import { cn, formatDuration } from "~/lib/utils";
 
 export type Phase = "idle" | "starting" | "recording" | "stopping";
 
 interface ComposerProps {
   phase: Phase;
-  /** The text box's content (editable when not recording). */
-  text: string;
-  /** A conversation's turns, shown instead of plain text (null: plain text). */
-  dialogue: DialogueBlock[] | null;
-  /** While recording: the words Soniox is still deciding on (settled ones are already in `text`). */
-  pendingText: string;
-  /** Whether `pendingText` carries on from Soniox's last settled piece (so no space is added). */
-  pendingContinues: boolean;
   error: string | null;
   elapsedMs: number;
-  durationMs: number;
   levels: number[];
   historyOpen: boolean;
   /** How many messages there are; with none, the history arrow is disabled. */
   historyCount: number;
   /** Replay is on: the empty box offers to go back in time. */
   onReplay?: () => void;
-  /** Replay's earlier part is being transcribed, ahead of this live recording. */
-  pastPending?: boolean;
-  onTextChange(text: string): void;
   onMic(): void;
-  /** Start listening to the computer's audio instead: someone you are talking to. */
   /** Start listening to both, you and the computer's audio, as a conversation. */
   onConversation(): void;
   /** What the recording listens to, switchable while it runs. */
   mode: ListenMode;
   onSwitchMode(mode: ListenMode): void;
-  /** A conversation's turn edited by hand while it is being recorded. */
-  onTurnEdit(id: string, text: string): void;
   onStop(): void;
-  /** Copy the text (or one side of a conversation), keep it in the messages and empty the box. */
   languages: string[];
   onLanguagesChange(languages: string[]): void;
   onToggleHistory(): void;
@@ -68,16 +49,14 @@ interface ComposerProps {
 }
 
 /**
- * The one view: a toolbar on top (settings and updates at the left, the messages arrow and
+ * The one view: a toolbar on top (settings and updates at the left, the sessions arrow and
  * hide at the right), then the box.
  *
- * Empty, the box itself is the talk button: click anywhere in it to start the mic. With
- * text it is T3's composer (the text across the full width, a row of controls under it),
- * whose main button is Copy: copy, keep it in the messages, start fresh.
+ * The box itself is the talk button: click anywhere in it to start the mic. While recording it
+ * is the recording's controls; what is said goes straight into the session below it.
  */
 export function Composer(props: ComposerProps) {
   const listening = props.phase !== "idle";
-  const talkSurface = !listening && !props.text;
   return (
     <div>
       <Toolbar {...props} />
@@ -86,18 +65,12 @@ export function Composer(props: ComposerProps) {
         dir="ltr"
         className="relative mx-2 mt-2 mb-2 rounded-xl border border-(--composer-outline) bg-card inset-shadow-2xs inset-shadow-(color:--composer-highlight)"
       >
-        {talkSurface ? (
-          <TalkSurface {...props} />
+        {listening ? (
+          <div className="flex items-center justify-between gap-2 p-1.5">
+            <RecordingRow {...props} />
+          </div>
         ) : (
-          <>
-            <div className="px-3.5 pt-2.5 pb-1">
-              {props.dialogue ? <DialogueText {...props} dialogue={props.dialogue} /> : <ComposerText {...props} />}
-              {props.error && <p className="mt-1 text-error-foreground text-xs">{props.error}</p>}
-            </div>
-            <div className="flex items-center justify-between gap-2 px-1.5 pb-1.5">
-              {listening ? <RecordingRow {...props} /> : <EditRow {...props} />}
-            </div>
-          </>
+          <TalkSurface {...props} />
         )}
       </div>
     </div>
@@ -182,25 +155,6 @@ function TalkSurface({ error, languages, onMic, onConversation, onReplay, onLang
   );
 }
 
-/** Under the text: languages, and a mic to add more. */
-function EditRow({ languages, onMic, onLanguagesChange }: ComposerProps) {
-  return (
-    <>
-      <LanguagePicker value={languages} onChange={onLanguagesChange} />
-      <Button
-        variant="ghost-muted"
-        size="icon-sm"
-        className="rounded-full before:rounded-full"
-        aria-label="Keep dictating"
-        title="Keep dictating"
-        onClick={onMic}
-      >
-        <MicIcon />
-      </Button>
-    </>
-  );
-}
-
 /** While recording: the timer and the wave, and Stop. */
 /**
  * Your microphone and the computer's audio, each on or muted on its own (T3's segmented toggle,
@@ -265,158 +219,6 @@ function RecordingRow({ phase, elapsedMs, levels, mode, onSwitchMode, onStop }: 
   );
 }
 
-/** Text metrics shared by the textarea and its mirror; they must lay out identically. */
-const FIELD_TEXT = "whitespace-pre-wrap wrap-break-word text-sm leading-relaxed";
-
-/**
- * The text, copying T3 Code's composer editor (ComposerPromptEditorTiptap.tsx): 14px, relaxed
- * line height; it grows line by line to 208px (max-h-52), then scrolls, with the scrollbar on
- * the left for Arabic. It stays editable while recording: settled words are appended to
- * `text` as Soniox sends them, and only the still-unsettled (gray) words are out of reach.
- * The textarea sits over a "mirror" div that holds the same text (invisible) followed by the
- * gray words, so those appear right after your text, and the mirror gives the box its size.
- */
-function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange }: ComposerProps) {
-  const listening = phase !== "idle";
-  const scrollRef = useRef<HTMLDivElement>(null);
-  const areaRef = useRef<HTMLTextAreaElement>(null);
-  // Follow the newest words unless the caret was moved away from the end to edit, or the box
-  // was scrolled up to read something earlier.
-  const followEnd = useRef(true);
-  const scroll = useFollowEnd(scrollRef, listening);
-
-  // The gray words go where they will land once settled, joined the same way.
-  const pending = joinSpoken(text, pendingText, pendingContinues).slice(text.length);
-  const pendingLead = /^\s*/.exec(pending)?.[0] ?? "";
-  const empty = !text && !pending;
-
-  useEffect(() => {
-    const el = areaRef.current;
-    if (!el) return;
-    el.focus();
-    el.setSelectionRange(el.value.length, el.value.length);
-  }, []);
-
-  useLayoutEffect(() => {
-    const el = areaRef.current;
-    const scroller = scrollRef.current;
-    if (!el || !scroller || !followEnd.current || !scroll.following.current) return;
-    if (document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
-    scroller.scrollTop = scroller.scrollHeight;
-  }, [text, pending]);
-
-  return (
-    <div className="relative">
-      <div
-        ref={scrollRef}
-        data-no-drag
-        dir={textDirection(text + pending)}
-        className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
-        onScroll={scroll.onScroll}
-      >
-        <div className="relative">
-          <div aria-hidden className={cn(FIELD_TEXT, "min-h-[1lh]", empty && "text-center")}>
-            {empty ? (
-              listening && (
-                <span dir="ltr" className="text-placeholder">
-                  {phase === "starting" ? "Connecting" : "Listening"}
-                  <AnimatedDots />
-                </span>
-              )
-            ) : (
-              <>
-                <span className="invisible">{text}</span>
-                {/* Isolated (<bdi>): mixed Arabic and English words around it would otherwise be
-                    reordered differently here than in the textarea above, and the two would overlap. */}
-                {/* The space before them stays outside, between the words, not at the isolated edge. */}
-                {pendingLead}
-                <bdi className="text-muted-foreground/70">{pending.slice(pendingLead.length)}</bdi>
-                {/* Keeps a trailing line break one line tall. */}
-                {"​"}
-              </>
-            )}
-          </div>
-          <textarea
-            ref={areaRef}
-            value={text}
-            spellCheck={false}
-            aria-label="Your text"
-            onChange={(event) => onTextChange(event.target.value)}
-            onSelect={(event) => {
-              const el = event.currentTarget;
-              followEnd.current = el.selectionEnd === el.value.length;
-            }}
-            // The caret only shows once there is text, so it never sits apart from the words.
-            className={cn(
-              FIELD_TEXT,
-              "absolute inset-0 size-full resize-none overflow-hidden bg-transparent text-foreground focus:outline-none",
-              !text && "caret-transparent",
-            )}
-          />
-        </div>
-      </div>
-      {listening && scroll.awayFromEnd && <ScrollToEndButton onScrollToEnd={scroll.scrollToEnd} />}
-    </div>
-  );
-}
-
-/**
- * A conversation, as T3 Code shows a thread with a guest: each speaker in a bubble of their own
- * color (ConversationTurn). Read-only, like messages.
- */
-function DialogueText({ phase, dialogue, pastPending, onTurnEdit }: ComposerProps & { dialogue: DialogueBlock[] }) {
-  const numbers = speakerNumbers(dialogue);
-  const listening = phase !== "idle";
-  const scrollRef = useRef<HTMLDivElement>(null);
-  // While recording, follow the newest words (unless scrolled up to read something earlier).
-  const scroll = useFollowEnd(scrollRef, listening);
-  useLayoutEffect(() => {
-    const scroller = scrollRef.current;
-    if (scroller && listening && scroll.following.current) scroller.scrollTop = scroller.scrollHeight;
-  }, [dialogue, listening, scroll.following]);
-  return (
-    <div className="relative">
-      <div
-        ref={scrollRef}
-        className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
-        onScroll={scroll.onScroll}
-      >
-        {pastPending && (
-          <p className="pb-2 text-center text-placeholder text-sm">
-            Transcribing the earlier part
-            <AnimatedDots />
-          </p>
-        )}
-        {dialogue.length === 0 ? (
-          <div className={cn(FIELD_TEXT, "min-h-[1lh] text-center")}>
-            {listening && (
-              <span className="text-placeholder">
-                {phase === "starting" ? "Connecting" : "Listening"}
-                <AnimatedDots />
-              </span>
-            )}
-          </div>
-        ) : (
-          // The gap between messages in the list below the box.
-          <div className="flex flex-col gap-3">
-            {dialogue.map((turn) => (
-              <ConversationTurn
-                key={turn.id}
-                turn={turn}
-                number={numbers.get(turn.speaker) ?? 1}
-                pending={turn.pending}
-                // Its settled words can be edited while recording, as plain dictation can.
-                onLiveEdit={turn.id.startsWith("pending:") ? undefined : (text) => onTurnEdit(turn.id, text)}
-              />
-            ))}
-          </div>
-        )}
-      </div>
-      {listening && scroll.awayFromEnd && <ScrollToEndButton onScrollToEnd={scroll.scrollToEnd} />}
-    </div>
-  );
-}
-
 /** ".", "..", "...", repeating. Always three dots wide, so the centered word never shifts. */
 export function AnimatedDots() {
   const [count, setCount] = useState(1);
@@ -438,8 +240,7 @@ export function AnimatedDots() {
  * shows when there is room for it.
  */
 function Toolbar(props: ComposerProps) {
-  const { phase, durationMs, onClose, onOpenSettings } = props;
-  const text = props.dialogue ? props.dialogue.map((turn) => turn.text).join(" ") : props.text;
+  const { phase, onClose, onOpenSettings } = props;
   const listening = phase !== "idle";
   return (
     <div data-slot="composer-toolbar" className="@container/footer px-2 pt-2">
@@ -457,12 +258,6 @@ function Toolbar(props: ComposerProps) {
             <Settings2Icon />
           </Button>
           <UpdateButton />
-          {!listening && text.trim() && (
-            <span className="ms-1.5 hidden text-muted-foreground text-xs tabular-nums @min-[300px]/footer:inline">
-              {durationMs > 0 && `${formatDuration(durationMs)} · `}
-              {countWords(text)} words
-            </span>
-          )}
         </div>
         <div className="flex items-center gap-0.5">
           <HistoryToggle {...props} />
@@ -474,8 +269,9 @@ function Toolbar(props: ComposerProps) {
 }
 
 /** Folds or unfolds the messages under the box. Disabled (T3's not-allowed cursor) when there are none. */
-function HistoryToggle({ historyOpen, historyCount, onToggleHistory }: ComposerProps) {
+function HistoryToggle({ phase, historyOpen, historyCount, onToggleHistory }: ComposerProps) {
   const noMessages = historyCount === 0 && !historyOpen;
+  const recording = phase !== "idle" && historyOpen;
   return (
     // aria-disabled rather than disabled: a disabled button gets no pointer events, so T3's
     // "not allowed" cursor (aria-disabled:cursor-not-allowed) would never show.
@@ -483,11 +279,11 @@ function HistoryToggle({ historyOpen, historyCount, onToggleHistory }: ComposerP
       variant="ghost-muted"
       size="icon"
       className="rounded-full before:rounded-full"
-      aria-label={historyOpen ? "Hide messages" : noMessages ? "No messages yet" : "Show messages"}
-      title={noMessages ? "No messages yet" : undefined}
+      aria-label={historyOpen ? "Hide sessions" : noMessages ? "No sessions yet" : "Show sessions"}
+      title={noMessages ? "No sessions yet" : recording ? "The session being recorded is shown" : undefined}
       aria-expanded={historyOpen}
-      aria-disabled={noMessages || undefined}
-      onClick={() => !noMessages && onToggleHistory()}
+      aria-disabled={noMessages || recording || undefined}
+      onClick={() => !noMessages && !recording && onToggleHistory()}
     >
       <ChevronDownIcon className={cn("transition-transform duration-200", historyOpen && "rotate-180")} />
     </Button>

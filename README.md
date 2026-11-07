@@ -1,11 +1,14 @@
 # Fancy Dictator
 
-Press a shortcut, speak, and watch [Soniox](https://soniox.com) write your words live.
-Copy the text, or send it to your recent messages.
+Press a shortcut, speak, and watch [Soniox](https://soniox.com) write your words live, straight
+into a session you can read, edit, copy and translate while it is still being recorded.
 
-- `Ctrl+Alt+Space` opens the window and starts recording; pressed again it stops the
-  recording, or hides the window when nothing is recording.
-- The empty box is the talk button: click anywhere in it to start the mic.
+- `Ctrl+Alt+Space` opens the window and starts recording a new session; pressed again it stops
+  the recording, or hides the window when nothing is recording.
+- The box is the talk button: click anywhere in it to start the mic. What you say goes into
+  the session shown under it, filling in as you speak (the newest words stay in view unless you
+  scroll up to read; **Scroll to end** follows them again). Talking again carries on in the
+  session shown; **＋** next to the session arrows starts a new one.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
   recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
   muted): unmuting the computer makes it a conversation, and both muted pauses the recording
@@ -20,19 +23,24 @@ Copy the text, or send it to your recent messages.
   too; a turn from the mic that is mostly words the call just played is dropped as echo.
   Its copy icon copies the conversation ("Speaker 1: … / Speaker 2: …") or one speaker only. The saved message keeps each side's audio as its own clip ("Microphone", "Computer
   audio"), both starting when the recording did, so they line up.
-- **Stop** (or `Ctrl+Enter`, `Esc`, or the shortcut again) ends the session: it is saved and
-  moves below the box, which is empty for the next one. Below the box is one session at a
-  time, the latest; the arrows under it, or the list between them (each session named by when
-  it was recorded), show another. A new recording hides it until it ends. Hiding the window ends a session too.
-- The bar under the session: the sessions on the left, and the shown one's copy (a
+- **Stop** (or `Ctrl+Enter`, `Esc`, or the shortcut again) ends the recording; the session is
+  saved where it is shown. Under the box is one session at a time, the latest; the arrows under
+  it, or the list between them (each session named by when it was recorded), show another.
+  Hiding the window ends a recording too.
+- The bar under the session: the sessions in the middle, and the shown one's copy (a
   conversation's offers one speaker only too) and delete on the right. **Clear all sessions**
   is at the end of the sessions' list.
-  Click into any bubble's text to edit it; it is saved when you click away.
-- Each message keeps the voice it was dictated with, one clip per recording ("Keep dictating"
+  Click into any bubble's text to edit it, even while it is being recorded; a saved session is
+  saved when you click away.
+- Select words in a session (while it is being recorded too) and the left of the bar offers to
+  translate them: the language (remembered) and the translate icon. The translation shows under
+  the bubble they were selected in, with its own copy icon. Google Translate's free service does
+  it (no key); only the selected words are sent.
+- Each session keeps the voice it was dictated with, one clip per recording (talking again
   adds the next): press ▶ on one to listen again, and click along it to jump there.
 - **Replay** (Settings → Replay, keeping the last 1 to 90 minutes; 60 to start with) keeps recording your mic and
   the computer's audio on this device, deleting what is older, so a conversation can be caught
-  after it started: **replay** in the empty box shows the timeline; click it to listen, drag
+  after it started: **replay** in the box shows the timeline; click it to listen, drag
   its **In** and **Out** marks to the part to keep (as in a video editor), and **Transcribe**
   turns it into a session as if it had been recorded live from In (Soniox's async API; nothing
   leaves the device before). **Keep going live** carries on recording into the same session
@@ -41,7 +49,7 @@ Copy the text, or send it to your recent messages.
   messages' recordings) is left out of the computer's audio. Windows shows the microphone in use
   while Replay is on.
 - The languages Soniox listens for are picked at the bottom-left of the box.
-- The toolbar has settings and updates at the left; the messages arrow and **—** (hide) at
+- The toolbar has settings and updates at the left; the sessions arrow and **—** (hide) at
   the right.
 - Lives in the tray; right-click the tray icon for Settings or Quit.
 
