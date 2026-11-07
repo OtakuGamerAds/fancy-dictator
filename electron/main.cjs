@@ -27,6 +27,7 @@ const models = require("./models.cjs");
 const audio = require("./audio.cjs");
 const replay = require("./replay.cjs");
 const sonioxAsync = require("./sonioxAsync.cjs");
+const health = require("./health.cjs");
 
 /**
  * The window never changes size: resizing a transparent window makes Windows flash the old
@@ -103,6 +104,8 @@ function createWindow() {
     },
   });
   win.setAlwaysOnTop(true, "screen-saver");
+  // The page comes back by itself if it crashes or hangs (electron/health.cjs).
+  if (!SNAPSHOT) health.watch(win, () => quitting);
 
   const query = SNAPSHOT ? { snapshot: "1" } : undefined;
   if (DEV_URL) win.loadURL(SNAPSHOT ? `${DEV_URL}?snapshot=1` : DEV_URL);
