@@ -13,6 +13,7 @@ import {
 import { useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import { ConversationTurn } from "~/components/ConversationTurn";
+import { ScrollToEndButton, useFollowEnd } from "~/components/FollowEnd";
 import { LanguagePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
@@ -279,8 +280,10 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
   const listening = phase !== "idle";
   const scrollRef = useRef<HTMLDivElement>(null);
   const areaRef = useRef<HTMLTextAreaElement>(null);
-  // Follow the newest words unless the caret was moved away from the end to edit.
+  // Follow the newest words unless the caret was moved away from the end to edit, or the box
+  // was scrolled up to read something earlier.
   const followEnd = useRef(true);
+  const scroll = useFollowEnd(scrollRef, listening);
 
   // The gray words go where they will land once settled, joined the same way.
   const pending = joinSpoken(text, pendingText, pendingContinues).slice(text.length);
@@ -297,58 +300,62 @@ function ComposerText({ phase, text, pendingText, pendingContinues, onTextChange
   useLayoutEffect(() => {
     const el = areaRef.current;
     const scroller = scrollRef.current;
-    if (!el || !scroller || !followEnd.current) return;
+    if (!el || !scroller || !followEnd.current || !scroll.following.current) return;
     if (document.activeElement === el) el.setSelectionRange(el.value.length, el.value.length);
     scroller.scrollTop = scroller.scrollHeight;
   }, [text, pending]);
 
   return (
-    <div
-      ref={scrollRef}
-      data-no-drag
-      dir={textDirection(text + pending)}
-      className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
-    >
-      <div className="relative">
-        <div aria-hidden className={cn(FIELD_TEXT, "min-h-[1lh]", empty && "text-center")}>
-          {empty ? (
-            listening && (
-              <span dir="ltr" className="text-placeholder">
-                {phase === "starting" ? "Connecting" : "Listening"}
-                <AnimatedDots />
-              </span>
-            )
-          ) : (
-            <>
-              <span className="invisible">{text}</span>
-              {/* Isolated (<bdi>): mixed Arabic and English words around it would otherwise be
-                  reordered differently here than in the textarea above, and the two would overlap. */}
-              {/* The space before them stays outside, between the words, not at the isolated edge. */}
-              {pendingLead}
-              <bdi className="text-muted-foreground/70">{pending.slice(pendingLead.length)}</bdi>
-              {/* Keeps a trailing line break one line tall. */}
-              {"​"}
-            </>
-          )}
+    <div className="relative">
+      <div
+        ref={scrollRef}
+        data-no-drag
+        dir={textDirection(text + pending)}
+        className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
+        onScroll={scroll.onScroll}
+      >
+        <div className="relative">
+          <div aria-hidden className={cn(FIELD_TEXT, "min-h-[1lh]", empty && "text-center")}>
+            {empty ? (
+              listening && (
+                <span dir="ltr" className="text-placeholder">
+                  {phase === "starting" ? "Connecting" : "Listening"}
+                  <AnimatedDots />
+                </span>
+              )
+            ) : (
+              <>
+                <span className="invisible">{text}</span>
+                {/* Isolated (<bdi>): mixed Arabic and English words around it would otherwise be
+                    reordered differently here than in the textarea above, and the two would overlap. */}
+                {/* The space before them stays outside, between the words, not at the isolated edge. */}
+                {pendingLead}
+                <bdi className="text-muted-foreground/70">{pending.slice(pendingLead.length)}</bdi>
+                {/* Keeps a trailing line break one line tall. */}
+                {"​"}
+              </>
+            )}
+          </div>
+          <textarea
+            ref={areaRef}
+            value={text}
+            spellCheck={false}
+            aria-label="Your text"
+            onChange={(event) => onTextChange(event.target.value)}
+            onSelect={(event) => {
+              const el = event.currentTarget;
+              followEnd.current = el.selectionEnd === el.value.length;
+            }}
+            // The caret only shows once there is text, so it never sits apart from the words.
+            className={cn(
+              FIELD_TEXT,
+              "absolute inset-0 size-full resize-none overflow-hidden bg-transparent text-foreground focus:outline-none",
+              !text && "caret-transparent",
+            )}
+          />
         </div>
-        <textarea
-          ref={areaRef}
-          value={text}
-          spellCheck={false}
-          aria-label="Your text"
-          onChange={(event) => onTextChange(event.target.value)}
-          onSelect={(event) => {
-            const el = event.currentTarget;
-            followEnd.current = el.selectionEnd === el.value.length;
-          }}
-          // The caret only shows once there is text, so it never sits apart from the words.
-          className={cn(
-            FIELD_TEXT,
-            "absolute inset-0 size-full resize-none overflow-hidden bg-transparent text-foreground focus:outline-none",
-            !text && "caret-transparent",
-          )}
-        />
       </div>
+      {listening && scroll.awayFromEnd && <ScrollToEndButton onScrollToEnd={scroll.scrollToEnd} />}
     </div>
   );
 }
@@ -361,43 +368,51 @@ function DialogueText({ phase, dialogue, pastPending, onTurnEdit }: ComposerProp
   const numbers = speakerNumbers(dialogue);
   const listening = phase !== "idle";
   const scrollRef = useRef<HTMLDivElement>(null);
-  // While recording, follow the newest words.
+  // While recording, follow the newest words (unless scrolled up to read something earlier).
+  const scroll = useFollowEnd(scrollRef, listening);
   useLayoutEffect(() => {
     const scroller = scrollRef.current;
-    if (scroller && listening) scroller.scrollTop = scroller.scrollHeight;
-  }, [dialogue, listening]);
+    if (scroller && listening && scroll.following.current) scroller.scrollTop = scroller.scrollHeight;
+  }, [dialogue, listening, scroll.following]);
   return (
-    <div ref={scrollRef} className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1">
-      {pastPending && (
-        <p className="pb-2 text-center text-placeholder text-sm">
-          Transcribing the earlier part
-          <AnimatedDots />
-        </p>
-      )}
-      {dialogue.length === 0 ? (
-        <div className={cn(FIELD_TEXT, "min-h-[1lh] text-center")}>
-          {listening && (
-            <span className="text-placeholder">
-              {phase === "starting" ? "Connecting" : "Listening"}
-              <AnimatedDots />
-            </span>
-          )}
-        </div>
-      ) : (
-        // The gap between messages in the list below the box.
-        <div className="flex flex-col gap-3">
-          {dialogue.map((turn) => (
-            <ConversationTurn
-              key={turn.id}
-              turn={turn}
-              number={numbers.get(turn.speaker) ?? 1}
-              pending={turn.pending}
-              // Its settled words can be edited while recording, as plain dictation can.
-              onLiveEdit={turn.id.startsWith("pending:") ? undefined : (text) => onTurnEdit(turn.id, text)}
-            />
-          ))}
-        </div>
-      )}
+    <div className="relative">
+      <div
+        ref={scrollRef}
+        className="-m-1 block max-h-52 w-[calc(100%+--spacing(2))] overflow-y-auto p-1"
+        onScroll={scroll.onScroll}
+      >
+        {pastPending && (
+          <p className="pb-2 text-center text-placeholder text-sm">
+            Transcribing the earlier part
+            <AnimatedDots />
+          </p>
+        )}
+        {dialogue.length === 0 ? (
+          <div className={cn(FIELD_TEXT, "min-h-[1lh] text-center")}>
+            {listening && (
+              <span className="text-placeholder">
+                {phase === "starting" ? "Connecting" : "Listening"}
+                <AnimatedDots />
+              </span>
+            )}
+          </div>
+        ) : (
+          // The gap between messages in the list below the box.
+          <div className="flex flex-col gap-3">
+            {dialogue.map((turn) => (
+              <ConversationTurn
+                key={turn.id}
+                turn={turn}
+                number={numbers.get(turn.speaker) ?? 1}
+                pending={turn.pending}
+                // Its settled words can be edited while recording, as plain dictation can.
+                onLiveEdit={turn.id.startsWith("pending:") ? undefined : (text) => onTurnEdit(turn.id, text)}
+              />
+            ))}
+          </div>
+        )}
+      </div>
+      {listening && scroll.awayFromEnd && <ScrollToEndButton onScrollToEnd={scroll.scrollToEnd} />}
     </div>
   );
 }

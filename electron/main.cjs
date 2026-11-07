@@ -621,6 +621,26 @@ async function runSnapshots() {
       console.log(`[snapshot] 5j-audio-jump.png (after the click: ${label})`);
     }
   }
+  // Recording: wheel up to read, more words come and it stays put; "Scroll to end" goes back.
+  if (wanted("4c-scrolled-up")) {
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("3-recording")`);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("4-recording-long")`);
+    const SCROLLER = `document.querySelector("#root .max-h-52.overflow-y-auto")`;
+    const state = `(() => { const s = ${SCROLLER}; return { top: Math.round(s.scrollTop), end: Math.round(s.scrollHeight - s.clientHeight), button: [...document.querySelectorAll("button")].some((b) => b.textContent.includes("Scroll to end")) }; })()`;
+    const at = await win.webContents.executeJavaScript(`(() => { const r = ${SCROLLER}.getBoundingClientRect(); return { x: Math.round(r.left + r.width / 2), y: Math.round(r.top + r.height / 2) }; })()`);
+    const before = await win.webContents.executeJavaScript(state);
+    win.webContents.sendInputEvent({ type: "mouseWheel", ...at, deltaX: 0, deltaY: 120, wheelTicksY: 1 });
+    await new Promise((r) => setTimeout(r, 400));
+    const scrolled = await win.webContents.executeJavaScript(state);
+    await win.webContents.executeJavaScript(`window.__fdSnapshot.show("4b-recording-long-more")`);
+    await new Promise((r) => setTimeout(r, 300));
+    const after = await win.webContents.executeJavaScript(state);
+    fs.writeFileSync(path.join(outDir, "4c-scrolled-up.png"), (await win.webContents.capturePage(await win.webContents.executeJavaScript(CARD_RECT))).toPNG());
+    await win.webContents.executeJavaScript(`[...document.querySelectorAll("button")].find((b) => b.textContent.includes("Scroll to end"))?.click()`);
+    await new Promise((r) => setTimeout(r, 300));
+    const back = await win.webContents.executeJavaScript(state);
+    console.log(`[snapshot] 4c-scrolled-up.png ${JSON.stringify({ before, scrolled, after, back })}`);
+  }
   quitting = true;
   app.quit();
 }

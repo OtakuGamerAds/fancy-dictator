@@ -1415,6 +1415,10 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setText(`${LONG_TEXT} ${LONG_TEXT.slice(0, -40)}`);
         x.setPendingText(LONG_TEXT.slice(-40));
       },
+      // More words come while scrolled up to read (electron/main.cjs scrolls up before this).
+      "4b-recording-long-more": (x) => {
+        x.setText(`${LONG_TEXT} ${LONG_TEXT} ${LONG_TEXT.slice(0, -40)}`);
+      },
       "5a-typed-short": (x) => {
         x.setPhase("idle");
         x.setPendingText("");

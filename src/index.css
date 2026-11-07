@@ -209,6 +209,17 @@
   border: 1px solid color-mix(in srgb, var(--contrast-foreground) 10%, transparent);
 }
 
+/* T3 Code's glass surface (its "glass" button, e.g. Scroll to end). */
+@utility surface-glass {
+  background: color-mix(in srgb, var(--background) var(--glass-opacity), transparent);
+  -webkit-backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+  backdrop-filter: blur(var(--glass-blur)) saturate(var(--glass-saturation));
+
+  @supports not ((-webkit-backdrop-filter: blur(1px)) or (backdrop-filter: blur(1px))) {
+    background: var(--background) !important;
+  }
+}
+
 /* Long dropdowns scroll with the wheel or the scrollbar. Base UI's scroll arrows
    scroll on hover, which is too easy to trigger by accident, so they are hidden. */
 [data-slot="select-scroll-up-arrow"],
