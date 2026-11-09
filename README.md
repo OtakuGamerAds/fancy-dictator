@@ -9,8 +9,9 @@ into a session you can read, edit, copy and translate while it is still being re
 - The box is the talk button: click anywhere in it to start the mic. What you say goes into
   the session shown under it, filling in as you speak (the newest words stay in view unless you
   scroll up to read; **Scroll to end** follows them again). Talking again carries on in the
-  session shown, in a new bubble (each recording its own, even with one voice); the
-  **new session** button (the pen, at the top right) starts a new one.
+  session shown, in a new bubble (each recording its own, even with one voice), and so does
+  speaking again after 5 seconds of silence; the **new session** button (the pen, at the top
+  right) starts a new one.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
   recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
   muted): unmuting the computer makes it a conversation, and both muted pauses the recording
@@ -32,14 +33,17 @@ into a session you can read, edit, copy and translate while it is still being re
 - The bar under the session: the sessions in the middle, and the shown one's copy (a
   conversation's offers one speaker only too) and delete on the right. **Clear all sessions**
   is at the end of the sessions' list.
-  Click into any bubble's text to edit it, even while it is being recorded; a saved session is
-  saved when you click away.
+  Long bubbles fold to 3 lines (while recording, all but the one being said): click into one to
+  edit it, even while it is being recorded (a saved session is saved when you click away), or
+  unfold them all with **Show all** on the bar. Drag over words to select them, across as many
+  bubbles as you like, and copy them.
 - Select words in a session (while it is being recorded too) and the left of the bar offers to
   translate them: the language (remembered) and the translate icon. The translation shows under
   the bubble they were selected in, with its own copy icon. Google Translate's free service does
   it (no key); only the selected words are sent.
 - Each session keeps the voice it was dictated with, one clip per recording (talking again
-  adds the next): press ▶ on one to listen again, and click along it to jump there.
+  adds the next), shown on a line where that recording began: press ▶ on one to listen again,
+  and click along it to jump there.
 - **Replay** (Settings → Replay, keeping the last 1 to 90 minutes; 60 to start with) keeps recording your mic and
   the computer's audio on this device, deleting what is older, so a conversation can be caught
   after it started: **replay** in the box shows the timeline; click it to listen, drag

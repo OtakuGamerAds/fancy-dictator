@@ -8,8 +8,8 @@
  * endpoint, `<end>`), or when another voice of the same stream speaks. Turns are placed in the
  * order they start and are never split: when someone cuts in from the other stream, the
  * sentence being said stays whole and theirs follows it, as if they had waited. Two turns in a
- * row from the same speaker are one paragraph, within a recording: talking again after Stop
- * starts a paragraph of its own.
+ * row from the same speaker are one paragraph, within a recording and without a long pause:
+ * talking again after Stop, or after a few seconds of silence, starts a paragraph of its own.
  *
  * Without headphones the microphone also hears the computer through the speakers. A turn from
  * the microphone that is mostly words the computer just played is that echo, and is dropped.
@@ -30,6 +30,8 @@ export type CopyWhich = "all" | number;
 export interface Turn {
   speaker: Voice;
   text: string;
+  /** The recording it was said in (1, 2, …, as the session's clips are numbered). */
+  recording?: number;
 }
 
 export interface DialogueTurn extends Turn {
@@ -41,13 +43,21 @@ export interface DialogueBlock extends DialogueTurn {
   pending: string;
 }
 
-/** Words a stream settled, as Soniox sent them: runs of one speaker, and where someone stopped. */
-export type SpeechPiece = { speaker?: string; text: string } | "end";
+/**
+ * Words a stream settled, as Soniox sent them: runs of one speaker, and where someone stopped.
+ * The times (ms into the stream) say where the run's words begin and end.
+ */
+export type SpeechPiece = { speaker?: string; text: string; startMs?: number; endMs?: number } | "end";
 /** Words a stream is still deciding on, by speaker. */
 export interface PendingRun {
   speaker?: string;
   text: string;
+  startMs?: number;
+  endMs?: number;
 }
+
+/** Silence this long, then words again: a new paragraph, as if the recording had been stopped. */
+export const PAUSE_MS = 5000;
 
 /** Each voice's number: 1 for whoever spoke first (turns without words aside). */
 export function speakerNumbers(turns: readonly { speaker: Voice; text: string; pending?: string }[]): Map<Voice, number> {
@@ -130,6 +140,10 @@ interface Lane {
   pending: string;
   /** Who the words still being decided on are by, when that is another voice of the stream. */
   pendingVoice: Voice | null;
+  /** Where (ms into the stream) the last words heard end, to tell a pause. */
+  lastEndMs: number | null;
+  /** A pause was heard: the next words start a paragraph of their own. */
+  afterPause: boolean;
 }
 
 /** The voice of a Soniox speaker id in a stream (a stream without diarization is speaker 1). */
@@ -182,11 +196,13 @@ export function turnsFromWords(streams: { source: Source; words: TimedWord[] }[]
   );
   kept.sort((a, b) => a.start - b.start);
   const turns: DialogueTurn[] = [];
+  let lastEnd = 0;
   for (const s of kept) {
     const text = s.text.trim();
     const last = turns.at(-1);
-    if (last && last.speaker === s.speaker) last.text = joinSpoken(last.text, text, false);
+    if (last && last.speaker === s.speaker && s.start - lastEnd < PAUSE_MS) last.text = joinSpoken(last.text, text, false);
     else turns.push({ id: newTurnId(), speaker: s.speaker, text });
+    lastEnd = s.end;
   }
   return turns;
 }
@@ -200,6 +216,8 @@ export class Dialogue {
   private now: () => number;
   /** The turns of earlier recordings: words said now are never added to them. */
   private sealed = new Set<string>();
+  /** The recording being made: its number goes with each turn said in it. */
+  private recording: number | undefined;
 
   constructor(turns: DialogueTurn[], now: () => number = Date.now) {
     this.turns = turns.map((turn) => ({ ...turn }));
@@ -217,12 +235,16 @@ export class Dialogue {
       continueLast && last?.speaker === voice
         ? { id: last.id, start: last.text.length, fresh: false, startedAt: this.now() }
         : null;
-    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null });
+    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null, lastEndMs: null, afterPause: false });
   }
 
-  /** A recording starts: what is said in it goes into turns of its own, after the ones so far. */
-  seal() {
+  /**
+   * Recording `recording` starts: what is said in it goes into turns of its own, after the ones
+   * so far, each marked with its number.
+   */
+  seal(recording: number) {
     this.sealed = new Set(this.turns.map((turn) => turn.id));
+    this.recording = recording;
   }
 
   /** New settled words from a stream, in order, and the words it is still deciding on. */
@@ -234,15 +256,18 @@ export class Dialogue {
         this.closeTurn(lane);
         continue;
       }
+      if (piece.text.trim()) this.notePause(lane, piece.startMs);
       const voice = voiceOf(lane.source, piece.speaker);
       if (voice !== lane.voice && piece.text.trim()) {
         this.closeTurn(lane); // another voice of this stream: the last one stopped
         lane.voice = voice;
       }
       this.append(lane, piece.text);
+      if (piece.text.trim() && piece.endMs !== undefined) lane.lastEndMs = piece.endMs;
     }
     lane.pending = pending.map((run) => run.text).join("");
     const first = pending.find((run) => run.text.trim());
+    if (first) this.notePause(lane, first.startMs);
     const pendingVoice = first ? voiceOf(lane.source, first.speaker) : null;
     if (pendingVoice && !lane.open) lane.voice = pendingVoice;
     lane.pendingVoice = pendingVoice && pendingVoice !== lane.voice ? pendingVoice : null;
@@ -281,9 +306,23 @@ export class Dialogue {
     if (!open && !text.trim()) this.remove(id);
   }
 
-  /** Turns said before this recording began (Replay's transcription), placed first. */
+  /**
+   * Turns said before this recording began (Replay's transcription), placed first: they are a
+   * recording of their own, the one made now the next.
+   */
   prepend(turns: DialogueTurn[]) {
-    this.turns.unshift(...turns.map((turn) => ({ ...turn })));
+    const recording = this.recording ?? 1;
+    for (const turn of this.turns) if (!this.sealed.has(turn.id)) turn.recording = (turn.recording ?? recording) + 1;
+    this.recording = recording + 1;
+    this.turns.unshift(...turns.map((turn) => ({ ...turn, recording })));
+  }
+
+  /** Words starting a while after the last ones ended: the paragraph being said ends there. */
+  private notePause(lane: Lane, startMs: number | undefined) {
+    if (startMs === undefined || lane.lastEndMs === null || startMs - lane.lastEndMs < PAUSE_MS) return;
+    this.closeTurn(lane);
+    lane.afterPause = true;
+    lane.lastEndMs = startMs; // heard once: the same words settling later are not a pause again
   }
 
   /** The turns as shown now, the still-unsettled words included. */
@@ -340,11 +379,13 @@ export class Dialogue {
     const last = this.turns.at(-1);
     const takenByOther = (id: string) => [...this.lanes.values()].some((other) => other !== lane && other.open?.id === id);
     const startedAt = this.now();
-    if (last && last.speaker === lane.voice && !this.sealed.has(last.id) && !takenByOther(last.id)) {
+    const afterPause = lane.afterPause;
+    lane.afterPause = false;
+    if (last && last.speaker === lane.voice && !afterPause && !this.sealed.has(last.id) && !takenByOther(last.id)) {
       lane.open = { id: last.id, start: last.text.length, fresh: true, startedAt };
       return;
     }
-    const turn = { id: newTurnId(), speaker: lane.voice, text: "" };
+    const turn: DialogueTurn = { id: newTurnId(), speaker: lane.voice, text: "", ...(this.recording ? { recording: this.recording } : {}) };
     this.turns.push(turn);
     lane.open = { id: turn.id, start: 0, fresh: true, startedAt };
   }

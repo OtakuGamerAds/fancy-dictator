@@ -49,7 +49,13 @@ interface Lane {
 }
 
 const savedTurns = (turns: DialogueTurn[]): Turn[] =>
-  turns.filter((turn) => turn.text.trim()).map(({ speaker, text }) => ({ speaker, text: text.trim() }));
+  turns
+    .filter((turn) => turn.text.trim())
+    .map(({ speaker, text, recording }) => ({ speaker, text: text.trim(), ...(recording ? { recording } : {}) }));
+
+/** How many recordings a session has (its clips are numbered by recording). */
+const recordingsOf = (entry: HistoryEntry | undefined) =>
+  entry ? new Set(entry.audioParts?.map((part) => part.recording)).size || (entry.audioClips ?? 0) : 0;
 
 const LEVEL_BARS = 18;
 /**
@@ -464,12 +470,10 @@ export function App() {
       const voice = from === "both" ? null : voiceOf(from);
       diarizeRef.current = from === "both" || asConversation || (turnsRef.current ?? []).some((turn) => turn.speaker !== voice);
       plainSource.current = from === "both" ? "mic" : from;
-      // A conversation, or a session talked into again: the words go into turns, this
-      // recording's in bubbles of their own after the ones so far.
-      if (from === "both" || asConversation || turnsRef.current || textRef.current.trim()) {
-        ensureDialogue().seal();
-        showDialogue();
-      }
+      // The words go into turns (bubbles), this recording's after the ones so far, each new one
+      // marked as where it began; a pause starts a bubble too.
+      ensureDialogue().seal(recordingsOf(continued) + 1);
+      showDialogue();
       textAtStart.current = textRef.current;
       setPendingText("");
       setLevels(Array(LEVEL_BARS).fill(0));
@@ -618,9 +622,12 @@ export function App() {
       setPastPending(true);
       pastRef.current = transcribePast(start, end, sources)
         .then(({ clips, turns }) => {
-          dialogueRef.current?.prepend(turns);
+          // Its own recording, before the live one.
+          if (clips.length) {
+            dialogueRef.current?.prepend(turns);
+            boxClips.current.unshift(recordedAudio(clips));
+          }
           showDialogue();
-          if (clips.length) boxClips.current.unshift(recordedAudio(clips));
           return cleanUpAfter();
         })
         .catch((failure: unknown) => setError(failure instanceof Error ? failure.message : String(failure)))
@@ -634,7 +641,7 @@ export function App() {
     setReplayBusy(true);
     try {
       const { clips, turns } = await transcribePast(start, end, sources);
-      const kept = savedTurns(turns);
+      const kept = savedTurns(turns.map((turn) => ({ ...turn, recording: 1 })));
       if (kept.length === 0) throw new Error("No speech found in that part.");
       const entry: HistoryEntry = {
         id: crypto.randomUUID(),
@@ -1099,7 +1106,7 @@ const LONG_TEXT =
  */
 async function probeConversation(x: SnapshotSetters, settings: Settings) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  type Token = { text: string; is_final: boolean; speaker?: string };
+  type Token = { text: string; is_final: boolean; speaker?: string; start_ms?: number; end_ms?: number };
   const sockets: Partial<Record<AudioSource, { emit(tokens: Token[]): void; ended: boolean }>> = {};
   window.__fdTestSocket = (source) => {
     const socket = {
@@ -1180,8 +1187,9 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await say("computer", "", "Sorry");
   steps.interrupt = box();
   // Edited while recording: the words still coming for that turn land after the edit.
-  const editable = document.querySelector<HTMLElement>("#root li [data-speaker] [contenteditable]");
+  const editable = document.querySelector<HTMLElement>("#root li [data-speaker] [data-editable]");
   if (editable) {
+    editable.contentEditable = "plaintext-only"; // as a click into it does
     editable.focus();
     editable.textContent = "Hi, did";
     editable.dispatchEvent(new InputEvent("input", { bubbles: true }));
@@ -1306,7 +1314,7 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await click('[aria-label="Click to talk"]');
   steps.continuedLive = box();
   // Words selected while it is being recorded stay selected as more come, to be translated.
-  const first = document.querySelector("#root li [data-speaker] [contenteditable]")?.firstChild;
+  const first = document.querySelector("#root li [data-speaker] [data-editable]")?.firstChild;
   if (first) {
     const range = document.createRange();
     range.setStart(first, 0);
@@ -1349,6 +1357,32 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await wait(1500);
   const again = (await window.api.getHistory())[0];
   steps.again = { text: again?.text, turns: again?.turns, shown: bubbles() };
+  // 9. Silence of a few seconds, then words again: a bubble of its own, in the same recording.
+  await click('[aria-label="New session"]');
+  await click('[aria-label="Click to talk"]');
+  sockets.mic?.emit([{ text: "Before the pause.", is_final: true, start_ms: 0, end_ms: 1200 }]);
+  await wait(60);
+  sockets.mic?.emit([{ text: "After", is_final: false, start_ms: 7000, end_ms: 7400 }]);
+  await wait(60);
+  steps.pauseLive = bubbles();
+  sockets.mic?.emit([{ text: "After it.", is_final: true, start_ms: 7000, end_ms: 7800 }]);
+  await wait(60);
+  sockets.mic?.emit([{ text: " Right after.", is_final: true, start_ms: 8200, end_ms: 9000 }]);
+  await wait(60);
+  findStop()?.click();
+  await wait(1500);
+  steps.pause = (await window.api.getHistory())[0]?.turns;
+  // Words selected across bubbles: one selection, copied as one.
+  const texts = document.querySelectorAll("#root li [data-turn-text]");
+  if (texts.length >= 2) {
+    const range = document.createRange();
+    range.setStart(texts[0]!, 0);
+    range.setEnd(texts[1]!, 1);
+    getSelection()?.removeAllRanges();
+    getSelection()?.addRange(range);
+  }
+  steps.acrossBubbles = getSelection()?.toString();
+  getSelection()?.removeAllRanges();
   window.__fdTestSocket = undefined;
   return steps;
 }
@@ -1653,11 +1687,13 @@ function useSnapshotHooks(s: SnapshotSetters) {
         x.setHistory([{ id: "short", text: formatConversation(turns), turns, createdAt: Date.now(), durationMs: 4000 }]);
         x.setHistoryOpen(true);
       },
-      // A dictation talked into again after Stop: a bubble per recording, without names.
+      // A dictation talked into again after Stop (and paused in): a bubble per recording and
+      // pause, without names; each recording marked where it began.
       "5m-talked-again": (x) => {
         const turns = [
-          { speaker: "mic:1", text: "شو رأيك نحط الإعدادات تحت" },
-          { speaker: "mic:1", text: "لا، خليها فوق جنب السهم، أسهل." },
+          { speaker: "mic:1", text: "شو رأيك نحط الإعدادات تحت", recording: 1 },
+          { speaker: "mic:1", text: LONG_TEXT, recording: 1 },
+          { speaker: "mic:1", text: "لا، خليها فوق جنب السهم، أسهل.", recording: 2 },
         ];
         x.setHistory([
           {

@@ -7,7 +7,7 @@
  * Endpoint and model settings follow the live-caption-sermons project.
  */
 
-import type { PendingRun, SpeechPiece } from "./dialogue";
+import { PAUSE_MS, type PendingRun, type SpeechPiece } from "./dialogue";
 
 const WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 // stt-rt-v6: stronger language switching within a sentence than v5, which Soniox retires on
@@ -246,7 +246,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
 
   ws.onmessage = (event) => {
     let message: {
-      tokens?: { text?: string; is_final?: boolean; speaker?: string }[];
+      tokens?: { text?: string; is_final?: boolean; speaker?: string; start_ms?: number; end_ms?: number }[];
       finished?: boolean;
       error_code?: number;
       error_message?: string;
@@ -267,11 +267,14 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
         if (typeof token?.text !== "string") continue;
         if (token.text === "<end>") speech.settled.push("end");
         if (token.text === "<end>" || token.text === "<fin>") continue;
-        // Consecutive words of one speaker make one run.
+        // Consecutive words of one speaker make one run (not across a pause, which starts a paragraph).
         const runs: (SpeechPiece | PendingRun)[] = token.is_final ? speech.settled : speech.pending;
         const last = runs.at(-1);
-        if (last && last !== "end" && last.speaker === token.speaker) last.text += token.text;
-        else runs.push({ speaker: token.speaker, text: token.text });
+        const paused = last && last !== "end" && token.start_ms !== undefined && last.endMs !== undefined && token.start_ms - last.endMs >= PAUSE_MS;
+        if (last && last !== "end" && last.speaker === token.speaker && !paused) {
+          last.text += token.text;
+          if (token.end_ms !== undefined) last.endMs = token.end_ms;
+        } else runs.push({ speaker: token.speaker, text: token.text, startMs: token.start_ms, endMs: token.end_ms });
         if (token.is_final) finalText += token.text;
         else nextPending += token.text;
       }

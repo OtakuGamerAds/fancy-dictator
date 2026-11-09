@@ -3,8 +3,9 @@ import { useLayoutEffect, useRef } from "react";
 import { cn } from "~/lib/utils";
 
 /**
- * A bubble's words, editable where they are: click into them and type. Enter or Esc finishes,
- * as does clicking away. Emptied, they go back to what they were.
+ * A bubble's words, editable where they are: click into them (see editOnClick) and type. Enter
+ * or Esc finishes, as does clicking away. Emptied, they go back to what they were. Until then
+ * they are plain text, so words can be selected across several bubbles at once to copy.
  *
  * `onInput` follows every keystroke (a conversation being recorded keeps its turns in step);
  * `onCommit` gets the words once editing finishes (a saved message is saved then).
@@ -56,8 +57,7 @@ export function EditableText({
   return (
     <span
       ref={ref}
-      contentEditable="plaintext-only"
-      suppressContentEditableWarning
+      data-editable
       spellCheck={false}
       className={cn("cursor-text outline-none", className)}
       onFocus={() => {
@@ -72,6 +72,7 @@ export function EditableText({
       }}
       onBlur={(event) => {
         finish(event.currentTarget);
+        event.currentTarget.removeAttribute("contenteditable"); // plain text again
         onBlur?.();
       }}
     />

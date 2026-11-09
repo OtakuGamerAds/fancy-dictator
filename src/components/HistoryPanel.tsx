@@ -2,16 +2,19 @@ import {
   CheckIcon,
   ChevronLeftIcon,
   ChevronRightIcon,
+  ChevronsDownUpIcon,
+  ChevronsUpDownIcon,
   CopyIcon,
   LanguagesIcon,
   LoaderCircleIcon,
   Trash2Icon,
 } from "lucide-react";
-import { type ComponentProps, Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
+import { type ComponentProps, Fragment, useCallback, useEffect, useLayoutEffect, useRef, useState } from "react";
 
 import {
   ConversationTurn,
   editOnClick,
+  FoldReport,
   useFold,
   speakerColors,
 } from "~/components/ConversationTurn";
@@ -116,6 +119,16 @@ export function HistoryPanel({
     };
   }, [pressed]);
   const held = live ? (pressed ?? selection?.turn ?? null) : null;
+  // Every bubble of the session unfolded at once ("Show all"), offered while one is folded.
+  const [expanded, setExpanded] = useState(false);
+  useEffect(() => setExpanded(false), [entry?.id]);
+  const cuts = useRef(new Set<string>());
+  const [anyCut, setAnyCut] = useState(false);
+  const reportCut = useCallback((id: string, cut: boolean) => {
+    if (cut) cuts.current.add(id);
+    else cuts.current.delete(id);
+    setAnyCut(cuts.current.size > 0);
+  }, []);
   const [translation, setTranslation] = useState<Translation | null>(null);
   const [translating, setTranslating] = useState(false);
   const translate = async () => {
@@ -153,15 +166,18 @@ export function HistoryPanel({
           }}
         >
           {entry ? (
-            <HistoryMessage
-              key={entry.id}
-              entry={entry}
-              live={live}
-              held={held}
-              translation={translation?.entryId === entry.id ? translation : null}
-              onEdit={onEdit}
-              onCopy={onCopy}
-            />
+            <FoldReport.Provider value={reportCut}>
+              <HistoryMessage
+                key={entry.id}
+                entry={entry}
+                live={live}
+                held={held}
+                expanded={expanded}
+                translation={translation?.entryId === entry.id ? translation : null}
+                onEdit={onEdit}
+                onCopy={onCopy}
+              />
+            </FoldReport.Provider>
           ) : (
             <li className="py-4 text-center text-muted-foreground text-xs">A new session: click to talk, above.</li>
           )}
@@ -249,7 +265,20 @@ export function HistoryPanel({
             <ChevronRightIcon />
           </Button>
         </div>
-        <span className="flex justify-end">
+        <span className="flex items-center justify-end gap-0.5">
+          {entry && (anyCut || expanded) && (
+            // T3's expand / collapse all (ChangedFilesTree).
+            <Button
+              variant="ghost-muted"
+              size="icon-xs"
+              aria-label={expanded ? "Fold all" : "Show all"}
+              title={expanded ? "Fold all" : "Show all"}
+              aria-pressed={expanded}
+              onClick={() => setExpanded(!expanded)}
+            >
+              {expanded ? <ChevronsDownUpIcon /> : <ChevronsUpDownIcon />}
+            </Button>
+          )}
           {entry && <SessionActions entry={entry} recording={!!live} onCopy={onCopy} onDelete={onDelete} />}
         </span>
       </div>
@@ -281,6 +310,7 @@ function HistoryMessage({
   entry,
   live,
   held,
+  expanded,
   translation,
   onEdit,
   onCopy,
@@ -290,6 +320,8 @@ function HistoryMessage({
   live: LiveSession | null;
   /** The turn (-1: the single bubble) holding still while words are selected in it. */
   held: number | null;
+  /** "Show all": nothing folded. */
+  expanded: boolean;
   /** Words selected in it, translated: shown under the bubble they were selected in. */
   translation: Translation | null;
   onEdit(entry: HistoryEntry): void;
@@ -311,28 +343,38 @@ function HistoryMessage({
     onEdit({ ...entry, turns: next, text: formatConversation(next) });
   };
 
-  // A single message folds to 3 lines (a conversation's turns fold each on their own); not
-  // while it is being recorded.
-  const fold = useFold(!turns && !live, entry.text);
+  // A single message folds to 3 lines (a session's bubbles fold each on their own; while it is
+  // being recorded, all but the one being said).
+  const fold = useFold(!turns && !live && !expanded, entry.text);
   const text = useHeld(entry.text, held === -1);
   const pending = useHeld(live && !turns ? live.pending : "", held === -1);
   const lead = /^\s*/.exec(pending)?.[0] ?? "";
 
-  // The voice it was dictated with, one clip per recording, above the text, as T3 lists the
-  // audio sent with a message.
-  const audio = entry.audioClips ? (
+  // The voice it was dictated with, one clip per recording (and source). Each recording whose
+  // bubbles are known is marked where it began; the others are above the text, as T3 lists
+  // the audio sent with a message.
+  const parts = entry.audioParts ?? [];
+  const placed = new Set(turns?.flatMap((turn) => (turn.recording ? [turn.recording] : [])));
+  const clips = Array.from({ length: entry.audioClips ?? 0 }, (_, clip) => clip);
+  const chips = (list: number[]) => (
     <div className="flex max-w-full flex-col gap-1">
-      {Array.from({ length: entry.audioClips }, (_, clip) => (
-        <InlineAudioPreview
-          key={clip}
-          name={clipName(entry, clip)}
-          audioId={entry.id}
-          clip={clip}
-          variant="chip"
-        />
+      {list.map((clip) => (
+        <InlineAudioPreview key={clip} name={clipName(entry, clip)} audioId={entry.id} clip={clip} variant="chip" />
       ))}
     </div>
-  ) : null;
+  );
+  const unplaced = clips.filter((clip) => !placed.has(parts[clip]?.recording ?? 0));
+  const audio = unplaced.length ? chips(unplaced) : null;
+  /** Where a recording began: its clips, on a line across the session. */
+  const marker = (recording: number) => {
+    const own = clips.filter((clip) => parts[clip]?.recording === recording);
+    return own.length ? (
+      <div className="flex w-full select-none items-center gap-2" data-recording-marker={recording}>
+        <span className="h-px flex-1 bg-border" />
+        {chips(own)}
+      </div>
+    ) : null;
+  };
 
   // Nothing said yet: "Listening…", where the words will appear.
   const waiting =
@@ -365,6 +407,7 @@ function HistoryMessage({
           )}
           {turns.map((turn, index) => (
             <Fragment key={live ? turn.id : index}>
+              {turn.recording !== undefined && turn.recording !== turns[index - 1]?.recording && marker(turn.recording)}
               {/* Which turn words are selected in (it lays out as if it were not there). */}
               <div data-turn-index={index} className="contents">
                 <HeldTurn
@@ -373,7 +416,8 @@ function HistoryMessage({
                   number={numbers?.get(turn.speaker) ?? 1}
                   named={named}
                   pending={turn.pending}
-                  foldable={!live}
+                  // Folded, but not the one being said (the newest words would be cut off).
+                  foldable={!expanded && !(live && (index === turns.length - 1 || turn.pending.trim()))}
                   onEdit={live ? undefined : (text) => editTurn(index, text)}
                   // Its settled words can be edited while recording, as plain dictation can.
                   onLiveEdit={live && !turn.id.startsWith("pending:") ? (text) => live.onTurnInput(turn.id, text) : undefined}
@@ -528,8 +572,9 @@ function useListSelection(listRef: React.RefObject<HTMLElement | null>, session:
       if (element(anchor)?.closest("[data-translation]")) return;
       const text = selected.toString().trim();
       if (selected.isCollapsed || !text) return setSelection(null);
-      const turn = Number(element(anchor)?.closest("[data-turn-index]")?.getAttribute("data-turn-index") ?? -1);
-      setSelection({ text, turn });
+      // Across bubbles: the last of them (its translation goes under it).
+      const turnOf = (node: Node | null) => Number(element(node)?.closest("[data-turn-index]")?.getAttribute("data-turn-index") ?? -1);
+      setSelection({ text, turn: Math.max(turnOf(anchor), turnOf(selected.focusNode)) });
     };
     document.addEventListener("selectionchange", onChange);
     return () => document.removeEventListener("selectionchange", onChange);

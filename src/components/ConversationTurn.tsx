@@ -1,4 +1,4 @@
-import { type MouseEvent, useLayoutEffect, useRef, useState } from "react";
+import { createContext, type MouseEvent, useContext, useEffect, useId, useLayoutEffect, useRef, useState } from "react";
 
 import { EditableText } from "~/components/editableText";
 import { guestBubbleClassName } from "~/components/guestMessageStyle";
@@ -27,6 +27,9 @@ export const FOLDED_TEXT_CLASS_NAME = "max-h-[3lh] overflow-hidden";
 const FADE_MASK = "linear-gradient(to bottom, black calc(100% - 1lh), transparent)";
 export const FOLDED_TEXT_FADE = { WebkitMaskImage: FADE_MASK, maskImage: FADE_MASK };
 
+/** Told whether each folded text has more than it shows (the session then offers "Show all"). */
+export const FoldReport = createContext<((id: string, cut: boolean) => void) | null>(null);
+
 /**
  * A saved message's words, folded to 3 lines (the last fading when there is more) until they
  * are clicked into to edit, and folded again once the focus leaves them.
@@ -36,6 +39,10 @@ export function useFold(foldable: boolean, text: string) {
   const [open, setOpen] = useState(false);
   const [cut, setCut] = useState(false);
   const folded = foldable && !open;
+  const id = useId();
+  const report = useContext(FoldReport);
+  useEffect(() => report?.(id, cut), [report, id, cut]);
+  useEffect(() => () => report?.(id, false), [report, id]);
   useLayoutEffect(() => {
     const element = textRef.current;
     if (!element || !folded) return setCut(false);
@@ -55,18 +62,24 @@ export function useFold(foldable: boolean, text: string) {
 }
 
 /**
- * A click anywhere on a bubble edits its words (not on its recordings): off the words, the
- * caret goes to their end.
+ * A click anywhere on a bubble edits its words (not on its recordings), the caret where it was
+ * clicked (off the words, at their end). Not after dragging over words to select them, maybe
+ * across bubbles: they stay selected, to copy.
  */
 export function editOnClick(event: MouseEvent<HTMLElement>) {
-  const words = event.currentTarget.querySelector<HTMLElement>("[contenteditable]");
+  const words = event.currentTarget.querySelector<HTMLElement>("[data-editable]");
   const target = event.target as HTMLElement;
-  if (!words || words.contains(document.activeElement) || target.closest("button, [data-slot=context-chip]")) return;
-  words.focus();
-  const caret = document.createRange();
-  caret.selectNodeContents(words);
-  caret.collapse(false);
+  if (!words || words.isContentEditable || target.closest("button, [data-slot=context-chip]")) return;
   const selection = getSelection();
+  if (selection && !selection.isCollapsed) return;
+  words.contentEditable = "plaintext-only";
+  words.focus();
+  let caret = document.caretRangeFromPoint(event.clientX, event.clientY);
+  if (!caret || !words.contains(caret.startContainer)) {
+    caret = document.createRange();
+    caret.selectNodeContents(words);
+    caret.collapse(false);
+  }
   selection?.removeAllRanges();
   selection?.addRange(caret);
 }
