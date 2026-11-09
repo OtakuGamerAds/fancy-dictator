@@ -11,7 +11,9 @@ into a session you can read, edit, copy and translate while it is still being re
   scroll up to read; **Scroll to end** follows them again). Talking again carries on in the
   session shown, in a new bubble (each recording its own, even with one voice), and so does
   speaking again after 5 seconds of silence; the **new session** button (the pen, at the top
-  right) starts a new one.
+  right) starts a new one (it stays shown, empty, if a recording into it ends with nothing said).
+- Only clear speech is written: words far quieter than the speech around them (about 12 dB;
+  voices in the background, a TV) are left out, live and in Replay's transcriptions.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
   recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
   muted): unmuting the computer makes it a conversation, and both muted pauses the recording

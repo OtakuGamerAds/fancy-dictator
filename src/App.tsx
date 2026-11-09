@@ -5,7 +5,8 @@ import { HistoryPanel, type LiveSession } from "~/components/HistoryPanel";
 import { type ReplayRequest, ReplayView } from "~/components/ReplayView";
 import { SettingsView } from "~/components/SettingsView";
 import { type RecordedAudio, RecordingAudio, recordedAudio } from "~/lib/clipRecorder";
-import { cutClip } from "~/lib/replayAudio";
+import { dropQuietWords, Loudness } from "~/lib/loudness";
+import { clipSamples, cutClip } from "~/lib/replayAudio";
 import { ReplayBuffer } from "~/lib/replayBuffer";
 import {
   Dialogue,
@@ -116,6 +117,14 @@ export function App() {
     phaseRef.current = next;
     setPhaseState(next);
   };
+  // A recording into a new session ended with nothing said (so nothing saved): the new session
+  // stays shown, empty, for the next one, rather than the latest saved one coming back.
+  useEffect(() => {
+    if (phase === "idle" && shownId && !history.some((entry) => entry.id === shownId)) {
+      setShownId(null);
+      setBlankSession(true);
+    }
+  }, [phase, shownId, history]);
 
   useEffect(() => {
     void window.api.getSettings().then((loaded) => {
@@ -602,7 +611,12 @@ export function App() {
       )
     ).filter((clip): clip is { source: AudioSource; webm: ArrayBuffer } => clip.webm !== null);
     const streams = await Promise.all(
-      clips.map(async (clip) => ({ source: clip.source, words: await window.api.transcribeReplay(clip.webm) })),
+      clips.map(async (clip) => {
+        const words = await window.api.transcribeReplay(clip.webm);
+        // The voices in the background, far quieter than the speech, are left out.
+        const { samples, sampleRate } = await clipSamples(clip.webm);
+        return { source: clip.source, words: dropQuietWords(words, samples, sampleRate) };
+      }),
     );
     return { clips, turns: turnsFromWords(streams) };
   };
@@ -1383,6 +1397,28 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   }
   steps.acrossBubbles = getSelection()?.toString();
   getSelection()?.removeAllRanges();
+  // 10. A new session, a recording with nothing said: the new session stays shown (empty).
+  await click('[aria-label="New session"]');
+  await click('[aria-label="Click to talk"]');
+  findStop()?.click();
+  await wait(1500);
+  steps.emptyStop = document.querySelector('[aria-label="Session"]')?.textContent;
+  // 11. Words far quieter than the speech (the background) are dropped; a word's continuation
+  // goes with it.
+  const loudness = new Loudness();
+  loudness.add(2000, 0.3);
+  loudness.add(2000, 0.03);
+  loudness.add(1000, 0.3);
+  steps.quiet = loudness
+    .filter([
+      { text: "Loud", is_final: true, start_ms: 0, end_ms: 400 },
+      { text: " words", is_final: true, start_ms: 500, end_ms: 1200 },
+      { text: " qui", is_final: true, start_ms: 2400, end_ms: 2700 },
+      { text: "et", is_final: true, start_ms: 2700, end_ms: 3000 },
+      { text: " again", is_final: false, start_ms: 4200, end_ms: 4600 },
+    ])
+    .map((token) => token.text)
+    .join("");
   window.__fdTestSocket = undefined;
   return steps;
 }

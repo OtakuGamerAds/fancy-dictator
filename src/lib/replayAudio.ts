@@ -29,6 +29,13 @@ function mono(buffer: AudioBuffer, from: number, to: number): Float32Array {
   return out;
 }
 
+/** A clip's sound, as one channel at 16 kHz (enough to tell how loud its words were). */
+export async function clipSamples(webm: ArrayBuffer): Promise<{ samples: Float32Array; sampleRate: number }> {
+  const sampleRate = 16_000;
+  const buffer = await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(webm.slice(0));
+  return { samples: mono(buffer, 0, buffer.length), sampleRate };
+}
+
 /**
  * One source's recording from `from` to `to` (ms since 1970), as a WebM (Opus) clip: what is
  * kept with the session, and what Soniox transcribes. Null when nothing was recorded then.
