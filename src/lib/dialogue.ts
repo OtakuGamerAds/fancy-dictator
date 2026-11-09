@@ -8,7 +8,8 @@
  * endpoint, `<end>`), or when another voice of the same stream speaks. Turns are placed in the
  * order they start and are never split: when someone cuts in from the other stream, the
  * sentence being said stays whole and theirs follows it, as if they had waited. Two turns in a
- * row from the same speaker are one paragraph.
+ * row from the same speaker are one paragraph, within a recording: talking again after Stop
+ * starts a paragraph of its own.
  *
  * Without headphones the microphone also hears the computer through the speakers. A turn from
  * the microphone that is mostly words the computer just played is that echo, and is dropped.
@@ -60,13 +61,15 @@ export function speakerNumbers(turns: readonly { speaker: Voice; text: string; p
 
 export const speakerName = (number: number) => `Speaker ${number}`;
 
-/** "Speaker 1: …" / "Speaker 2: …", one turn per line: what Copy puts on the clipboard. */
+/**
+ * "Speaker 1: …" / "Speaker 2: …", one turn per line: what Copy puts on the clipboard. With one
+ * voice only (a dictation talked into again), its paragraphs without names.
+ */
 export function formatConversation(turns: Turn[]): string {
   const numbers = speakerNumbers(turns);
-  return turns
-    .filter((turn) => turn.text.trim())
-    .map((turn) => `${speakerName(numbers.get(turn.speaker)!)}: ${turn.text.trim()}`)
-    .join("\n");
+  const said = turns.filter((turn) => turn.text.trim());
+  if (numbers.size <= 1) return said.map((turn) => turn.text.trim()).join("\n\n");
+  return said.map((turn) => `${speakerName(numbers.get(turn.speaker)!)}: ${turn.text.trim()}`).join("\n");
 }
 
 /** Only what one speaker said, one turn per line. */
@@ -195,6 +198,8 @@ export class Dialogue {
   /** What the computer played lately, to recognize it when it comes back through the microphone. */
   private heard: { at: number; text: string }[] = [];
   private now: () => number;
+  /** The turns of earlier recordings: words said now are never added to them. */
+  private sealed = new Set<string>();
 
   constructor(turns: DialogueTurn[], now: () => number = Date.now) {
     this.turns = turns.map((turn) => ({ ...turn }));
@@ -213,6 +218,11 @@ export class Dialogue {
         ? { id: last.id, start: last.text.length, fresh: false, startedAt: this.now() }
         : null;
     this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null });
+  }
+
+  /** A recording starts: what is said in it goes into turns of its own, after the ones so far. */
+  seal() {
+    this.sealed = new Set(this.turns.map((turn) => turn.id));
   }
 
   /** New settled words from a stream, in order, and the words it is still deciding on. */
@@ -322,12 +332,15 @@ export class Dialogue {
     }
   }
 
-  /** A new turn goes last: into the speaker's last paragraph if nobody spoke since, or a new one. */
+  /**
+   * A new turn goes last: into the speaker's last paragraph if nobody spoke since (in this
+   * recording), or a new one.
+   */
   private openTurn(lane: Lane) {
     const last = this.turns.at(-1);
     const takenByOther = (id: string) => [...this.lanes.values()].some((other) => other !== lane && other.open?.id === id);
     const startedAt = this.now();
-    if (last && last.speaker === lane.voice && !takenByOther(last.id)) {
+    if (last && last.speaker === lane.voice && !this.sealed.has(last.id) && !takenByOther(last.id)) {
       lane.open = { id: last.id, start: last.text.length, fresh: true, startedAt };
       return;
     }
@@ -362,7 +375,7 @@ export class Dialogue {
     this.turns.splice(index, 1);
     const before = this.turns[index - 1];
     const after = this.turns[index];
-    if (!before || !after || before.speaker !== after.speaker) return;
+    if (!before || !after || before.speaker !== after.speaker || this.sealed.has(before.id) || this.sealed.has(after.id)) return;
     const gap = before.text && after.text && !/\s$/u.test(before.text) && !/^\s/u.test(after.text) ? " " : "";
     for (const lane of this.lanes.values()) {
       if (lane.open?.id !== after.id) continue;

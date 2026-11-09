@@ -235,8 +235,9 @@ function keepOnScreen(contentHeight) {
 // ── Hotkey ────────────────────────────────────────────────────────────────
 
 /**
- * The shortcut opens the window and starts recording. Pressed again it stops a recording,
- * or hides the window when nothing is recording (the renderer decides, it knows).
+ * The shortcut opens the window and starts recording a new session. With the window open it is
+ * the talk button: it stops a recording, or starts the next one (the renderer decides, it
+ * knows). The window is only hidden by hand.
  */
 function onHotkey() {
   if (!windowAlive()) return;

@@ -184,6 +184,8 @@ export function App() {
   const [blocks, setBlocks] = useState<DialogueBlock[] | null>(null);
   // While recording into a conversation: places each stream's words in its speaker's turns.
   const dialogueRef = useRef<Dialogue | null>(null);
+  // Whether the streams opened now tell voices apart: in a conversation, not in a dictation.
+  const diarizeRef = useRef(false);
 
   const writeTurns = (turns: DialogueTurn[] | null) => {
     turnsRef.current = turns;
@@ -394,7 +396,7 @@ export function App() {
           source: lane.source,
           deviceId: current.micDeviceId || undefined,
           // In a conversation, the voices of each stream are told apart.
-          diarize: dialogueRef.current !== null,
+          diarize: diarizeRef.current,
           onText: (final, pending, speech) => laneText(lane, final, pending, speech),
           onLevel: (level) => laneLevel(lane, level),
           onStream: (stream) => clip?.add(lane.source, stream),
@@ -455,12 +457,20 @@ export function App() {
       setHistoryOpen(true);
       setError(null);
       spokenEnd.current = null;
-      textAtStart.current = textRef.current;
       const clip = new RecordingAudio();
       boxClips.current.push(clip);
-      // Both sides, or a box that already holds a conversation: the words go into turns.
-      if (from === "both" || turnsRef.current || asConversation) ensureDialogue();
-      else plainSource.current = from;
+      // A conversation (both sides, or a session holding more than one voice): the voices of
+      // each stream are told apart.
+      const voice = from === "both" ? null : voiceOf(from);
+      diarizeRef.current = from === "both" || asConversation || (turnsRef.current ?? []).some((turn) => turn.speaker !== voice);
+      plainSource.current = from === "both" ? "mic" : from;
+      // A conversation, or a session talked into again: the words go into turns, this
+      // recording's in bubbles of their own after the ones so far.
+      if (from === "both" || asConversation || turnsRef.current || textRef.current.trim()) {
+        ensureDialogue().seal();
+        showDialogue();
+      }
+      textAtStart.current = textRef.current;
       setPendingText("");
       setLevels(Array(LEVEL_BARS).fill(0));
       setCopied(false);
@@ -505,6 +515,7 @@ export function App() {
       const lanes = lanesRef.current;
       // Each source muted or not on its own; both muted is a pause (no stream, nothing billed).
       const want: AudioSource[] = next === "both" ? ["mic", "computer"] : next === "none" ? [] : [next];
+      if (next === "both") diarizeRef.current = true;
       if (!dialogueRef.current && want.includes("computer")) {
         // Becoming a conversation: the text so far is the first turn, and the stream already
         // running carries on in it as its speaker.
@@ -755,7 +766,8 @@ export function App() {
         if (p === "idle") void startRecording(true);
       } else if (p === "recording") void finishSession();
       else if (p === "starting") cancelRecording();
-      else if (p === "idle") hide();
+      // Open: talking again, as the box's own click does (into the session shown, a new bubble).
+      else if (p === "idle") void startRecording();
     });
     const offOpenSettings = window.api.onOpenSettings(() => {
       if (phaseRef.current === "idle") setView("settings");
@@ -937,6 +949,13 @@ export function App() {
               levels={levels}
               historyOpen={historyOpen || live !== null}
               historyCount={history.length}
+              // Nothing to start anew from while recording, or with no sessions, or one already new.
+              canStartNewSession={phase === "idle" && history.length > 0 && !(blankSession && historyOpen)}
+              onNewSession={() => {
+                setShownId(null);
+                setBlankSession(true);
+                setHistoryOpen(true);
+              }}
               onMic={() => void startRecording()}
               onConversation={() => void startRecording(false, "both")}
               onReplay={replayMinutes ? () => setView("replay") : undefined}
@@ -969,10 +988,6 @@ export function App() {
                 blank={blankSession}
                 live={live}
                 onSelect={showSession}
-                onNewSession={() => {
-                  setShownId(null);
-                  setBlankSession(true);
-                }}
                 showUndo={phase !== "idle"}
                 translateTo={settings?.translateTo ?? "en"}
                 onTranslateToChange={(translateTo) => {
@@ -1318,6 +1333,22 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
     recordings: new Set(after[0]?.audioParts?.map((part) => part.recording)).size,
     shown: box(),
   };
+  // 8. A dictation talked into again: the second recording is a bubble of its own, without
+  // names (one voice), and Copy takes the two as paragraphs.
+  await click('[aria-label="New session"]');
+  await click('[aria-label="Click to talk"]');
+  await say("mic", "First time.", "", true);
+  findStop()?.click();
+  await wait(1500);
+  await click('[aria-label="Click to talk"]');
+  await say("mic", "Second", " time");
+  const bubbles = () => [...document.querySelectorAll("#root li [data-turn-text], #root li [data-selectable]")].map((b) => b.textContent);
+  steps.againLive = { bubbles: bubbles(), names: document.querySelector("#root li")?.textContent?.includes("Speaker") };
+  await say("mic", " time.", "", true);
+  findStop()?.click();
+  await wait(1500);
+  const again = (await window.api.getHistory())[0];
+  steps.again = { text: again?.text, turns: again?.turns, shown: bubbles() };
   window.__fdTestSocket = undefined;
   return steps;
 }
@@ -1620,6 +1651,28 @@ function useSnapshotHooks(s: SnapshotSetters) {
           ...SAMPLE_TURNS.slice(4).map(({ speaker, text }) => ({ speaker, text })),
         ];
         x.setHistory([{ id: "short", text: formatConversation(turns), turns, createdAt: Date.now(), durationMs: 4000 }]);
+        x.setHistoryOpen(true);
+      },
+      // A dictation talked into again after Stop: a bubble per recording, without names.
+      "5m-talked-again": (x) => {
+        const turns = [
+          { speaker: "mic:1", text: "شو رأيك نحط الإعدادات تحت" },
+          { speaker: "mic:1", text: "لا، خليها فوق جنب السهم، أسهل." },
+        ];
+        x.setHistory([
+          {
+            id: "again",
+            text: formatConversation(turns),
+            turns,
+            createdAt: Date.now(),
+            durationMs: 12000,
+            audioClips: 2,
+            audioParts: [
+              { recording: 1, source: "mic" },
+              { recording: 2, source: "mic" },
+            ],
+          },
+        ]);
         x.setHistoryOpen(true);
       },
       "6-settings": (x) => {

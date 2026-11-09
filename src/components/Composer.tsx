@@ -8,6 +8,7 @@ import {
   MonitorSpeakerIcon,
   Settings2Icon,
   SquareIcon,
+  SquarePenIcon,
   UsersIcon,
 } from "lucide-react";
 import { useEffect, useState } from "react";
@@ -43,14 +44,17 @@ interface ComposerProps {
   languages: string[];
   onLanguagesChange(languages: string[]): void;
   onToggleHistory(): void;
+  /** The next recording starts a new session (shown blank under the box until then). */
+  onNewSession(): void;
+  canStartNewSession: boolean;
   /** Close the window. */
   onClose(): void;
   onOpenSettings(): void;
 }
 
 /**
- * The one view: a toolbar on top (settings and updates at the left, the sessions arrow and
- * hide at the right), then the box.
+ * The one view: a toolbar on top (settings and updates at the left; a new session, the sessions
+ * arrow and hide at the right), then the box.
  *
  * The box itself is the talk button: click anywhere in it to start the mic. While recording it
  * is the recording's controls; what is said goes straight into the session below it.
@@ -235,9 +239,8 @@ export function AnimatedDots() {
 }
 
 /**
- * The toolbar, like a title bar: settings and updates at the left, the messages arrow and hide
- * at the right. It is a size container, so it never makes the card wider; the word count only
- * shows when there is room for it.
+ * The toolbar, like a title bar: settings and updates at the left; a new session, the sessions
+ * arrow and hide at the right.
  */
 function Toolbar(props: ComposerProps) {
   const { phase, onClose, onOpenSettings } = props;
@@ -260,11 +263,30 @@ function Toolbar(props: ComposerProps) {
           <UpdateButton />
         </div>
         <div className="flex items-center gap-0.5">
+          <NewSessionButton {...props} />
           <HistoryToggle {...props} />
           <HideButton label={listening ? "Hide (keeps what you said)" : "Hide (Esc)"} onClick={onClose} />
         </div>
       </div>
     </div>
+  );
+}
+
+/** A new session, as T3's "New thread" (its square pen): the next recording starts it. */
+function NewSessionButton({ phase, canStartNewSession, onNewSession }: ComposerProps) {
+  const title = phase !== "idle" ? "New session (after the recording)" : "New session";
+  return (
+    <Button
+      variant="ghost-muted"
+      size="icon"
+      className="rounded-full before:rounded-full"
+      aria-label="New session"
+      title={title}
+      aria-disabled={!canStartNewSession || undefined}
+      onClick={() => canStartNewSession && onNewSession()}
+    >
+      <SquarePenIcon />
+    </Button>
   );
 }
 

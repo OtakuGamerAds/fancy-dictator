@@ -3,12 +3,14 @@
 Press a shortcut, speak, and watch [Soniox](https://soniox.com) write your words live, straight
 into a session you can read, edit, copy and translate while it is still being recorded.
 
-- `Ctrl+Alt+Space` opens the window and starts recording a new session; pressed again it stops
-  the recording, or hides the window when nothing is recording.
+- `Ctrl+Alt+Space` opens the window and starts recording a new session. With the window open
+  it stops and starts recording, as the box does (talking again goes into the session shown);
+  it never hides the window (**—** does).
 - The box is the talk button: click anywhere in it to start the mic. What you say goes into
   the session shown under it, filling in as you speak (the newest words stay in view unless you
   scroll up to read; **Scroll to end** follows them again). Talking again carries on in the
-  session shown; **＋** next to the session arrows starts a new one.
+  session shown, in a new bubble (each recording its own, even with one voice); the
+  **new session** button (the pen, at the top right) starts a new one.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
   recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
   muted): unmuting the computer makes it a conversation, and both muted pauses the recording
@@ -49,8 +51,8 @@ into a session you can read, edit, copy and translate while it is still being re
   messages' recordings) is left out of the computer's audio. Windows shows the microphone in use
   while Replay is on.
 - The languages Soniox listens for are picked at the bottom-left of the box.
-- The toolbar has settings and updates at the left; the sessions arrow and **—** (hide) at
-  the right.
+- The toolbar has settings and updates at the left; new session, the sessions arrow and **—**
+  (hide) at the right.
 - Lives in the tray; right-click the tray icon for Settings or Quit.
 
 ## Install, update, uninstall

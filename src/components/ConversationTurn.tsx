@@ -83,6 +83,7 @@ export function speakerColors(number: number) {
 export function ConversationTurn({
   turn,
   number,
+  named = true,
   pending = "",
   foldable = false,
   onEdit,
@@ -92,6 +93,8 @@ export function ConversationTurn({
   turn: Turn;
   /** The speaker's number (1 for whoever spoke first). */
   number: number;
+  /** Its speaker's name above it: not when the session has one voice only. */
+  named?: boolean;
   pending?: string;
   /** Folded to 3 lines when longer, until clicked into (a saved message). */
   foldable?: boolean;
@@ -110,7 +113,7 @@ export function ConversationTurn({
     // Full width, so the bubble's 80% is of the list, not of its own text.
     <div className="flex w-full flex-col items-end gap-1" data-speaker={number}>
       {/* T3's GuestMessageName, in the speaker's color. */}
-      <p className={cn("me-1 select-none text-2xs", colors.name)}>{speakerName(number)}</p>
+      {named && <p className={cn("me-1 select-none text-2xs", colors.name)}>{speakerName(number)}</p>}
       <div
         dir={textDirection(turn.text + pending)}
         data-no-drag

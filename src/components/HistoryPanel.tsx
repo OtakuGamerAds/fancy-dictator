@@ -5,7 +5,6 @@ import {
   CopyIcon,
   LanguagesIcon,
   LoaderCircleIcon,
-  PlusIcon,
   Trash2Icon,
 } from "lucide-react";
 import { type ComponentProps, Fragment, useEffect, useLayoutEffect, useRef, useState } from "react";
@@ -58,7 +57,6 @@ interface HistoryPanelProps {
   /** Being recorded: shown instead, and the other sessions wait until it ends. */
   live: LiveSession | null;
   onSelect(id: string): void;
-  onNewSession(): void;
   /** Show "Deleted, Ctrl+Z to undo" here. */
   showUndo: boolean;
   /** The language selected words are translated into. */
@@ -74,7 +72,7 @@ interface HistoryPanelProps {
 /**
  * The sessions under the box, one at a time: the latest, until another is picked with the
  * arrows or from the list between them (each named by when it was recorded). Recording goes
- * into the one shown (＋ starts a new one); it fills in as you speak.
+ * into the one shown (the toolbar's new-session button starts a new one); it fills in as you speak.
  */
 export function HistoryPanel({
   history,
@@ -82,7 +80,6 @@ export function HistoryPanel({
   blank,
   live,
   onSelect,
-  onNewSession,
   showUndo,
   translateTo,
   onTranslateToChange,
@@ -206,8 +203,8 @@ export function HistoryPanel({
             showUndo && undoActive && <UndoNotice className="w-32 justify-start" />
           )}
         </span>
-        {/* Older on the left, newer on the right; the session itself picked in between; ＋ a new
-            one. While one is being recorded, it stays. */}
+        {/* Older on the left, newer on the right; the session itself picked in between. While one
+            is being recorded, it stays. */}
         <div className="flex items-center gap-1">
           <Button
             variant="ghost-muted"
@@ -250,16 +247,6 @@ export function HistoryPanel({
             onClick={() => go(index - 1)}
           >
             <ChevronRightIcon />
-          </Button>
-          <Button
-            variant="ghost-muted"
-            size="icon-xs"
-            aria-label="New session"
-            title="New session (the next recording starts it)"
-            disabled={!!live || blank}
-            onClick={onNewSession}
-          >
-            <PlusIcon />
           </Button>
         </div>
         <span className="flex justify-end">
@@ -315,6 +302,8 @@ function HistoryMessage({
     : savedTurns && savedTurns.map((turn, index) => ({ ...turn, id: String(index), pending: "" }));
   const turns = blocks?.length ? blocks : null;
   const numbers = turns && speakerNumbers(turns);
+  // One voice (a dictation talked into again, a bubble per recording): no names above them.
+  const named = !!numbers && numbers.size > 1;
   // A saved turn edited: the written-out conversation (what Copy takes) follows the turns.
   const editTurn = (index: number, text: string) => {
     if (!savedTurns) return;
@@ -382,6 +371,7 @@ function HistoryMessage({
                   held={held === index}
                   turn={turn}
                   number={numbers?.get(turn.speaker) ?? 1}
+                  named={named}
                   pending={turn.pending}
                   foldable={!live}
                   onEdit={live ? undefined : (text) => editTurn(index, text)}
@@ -466,7 +456,7 @@ function SessionActions({
   const icon = copied ? <CheckIcon className="text-success-foreground" /> : <CopyIcon />;
   return (
     <div className="flex items-center gap-0.5">
-      {turns && numbers ? (
+      {turns && numbers && numbers.size > 1 ? (
         <Menu>
           <MenuTrigger render={<Button variant="ghost-muted" size="icon-xs" aria-label="Copy" title="Copy" />}>
             {icon}
