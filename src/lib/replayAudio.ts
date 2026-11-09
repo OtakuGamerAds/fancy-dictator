@@ -6,6 +6,7 @@
  */
 import { AudioBufferSource, BufferTarget, Output, QUALITY_HIGH, WebMOutputFormat } from "mediabunny";
 
+import { createStreamGate } from "./hissGate";
 import type { ReplaySegment } from "./types";
 
 const SAMPLE_RATE = 48_000;
@@ -29,18 +30,12 @@ function mono(buffer: AudioBuffer, from: number, to: number): Float32Array {
   return out;
 }
 
-/** A clip's sound, as one channel at 16 kHz (enough to tell how loud its words were). */
-export async function clipSamples(webm: ArrayBuffer): Promise<{ samples: Float32Array; sampleRate: number }> {
-  const sampleRate = 16_000;
-  const buffer = await new OfflineAudioContext(1, 1, sampleRate).decodeAudioData(webm.slice(0));
-  return { samples: mono(buffer, 0, buffer.length), sampleRate };
-}
-
 /**
  * One source's recording from `from` to `to` (ms since 1970), as a WebM (Opus) clip: what is
- * kept with the session, and what Soniox transcribes. Null when nothing was recorded then.
+ * kept with the session; `gated` (the hiss gate: muted while nobody speaks), what Soniox
+ * transcribes. Null when nothing was recorded then.
  */
-export async function cutClip(segments: ReplaySegment[], from: number, to: number): Promise<ArrayBuffer | null> {
+export async function cutClip(segments: ReplaySegment[], from: number, to: number, gated = false): Promise<ArrayBuffer | null> {
   const pieces = overlapping(segments, from, to);
   if (pieces.length === 0) return null;
   const decoder = new OfflineAudioContext(1, 1, SAMPLE_RATE);
@@ -48,11 +43,14 @@ export async function cutClip(segments: ReplaySegment[], from: number, to: numbe
   const source = new AudioBufferSource({ codec: "opus", quality: QUALITY_HIGH });
   output.addAudioTrack(source);
   await output.start();
-  const add = (samples: Float32Array) => {
+  const encode = (samples: Float32Array) => {
+    if (samples.length === 0) return Promise.resolve();
     const buffer = new AudioBuffer({ numberOfChannels: 1, length: Math.max(1, samples.length), sampleRate: SAMPLE_RATE });
     buffer.copyToChannel(samples as Float32Array<ArrayBuffer>, 0);
     return source.add(buffer);
   };
+  const gate = gated ? createStreamGate(SAMPLE_RATE) : null;
+  const add = (sound: Float32Array) => encode(gate ? gate.process(sound) : sound);
   const toSamples = (ms: number) => Math.round((ms * SAMPLE_RATE) / 1000);
   let written = 0; // samples since `from`
   const total = toSamples(to - from);
@@ -73,6 +71,7 @@ export async function cutClip(segments: ReplaySegment[], from: number, to: numbe
     await add(mono(buffer, start, end));
     written += end - start;
   }
+  if (gate) await encode(gate.flush());
   await output.finalize();
   return output.target.buffer;
 }

@@ -5,8 +5,8 @@ import { HistoryPanel, type LiveSession } from "~/components/HistoryPanel";
 import { type ReplayRequest, ReplayView } from "~/components/ReplayView";
 import { SettingsView } from "~/components/SettingsView";
 import { type RecordedAudio, RecordingAudio, recordedAudio } from "~/lib/clipRecorder";
-import { dropQuietWords, Loudness } from "~/lib/loudness";
-import { clipSamples, cutClip } from "~/lib/replayAudio";
+import { createStreamGate } from "~/lib/hissGate";
+import { cutClip } from "~/lib/replayAudio";
 import { ReplayBuffer } from "~/lib/replayBuffer";
 import {
   Dialogue,
@@ -610,12 +610,16 @@ export function App() {
         })),
       )
     ).filter((clip): clip is { source: AudioSource; webm: ArrayBuffer } => clip.webm !== null);
+    // Soniox hears each clip muted while nobody speaks (the hiss gate), as live.
     const streams = await Promise.all(
       clips.map(async (clip) => {
-        const words = await window.api.transcribeReplay(clip.webm);
-        // The voices in the background, far quieter than the speech, are left out.
-        const { samples, sampleRate } = await clipSamples(clip.webm);
-        return { source: clip.source, words: dropQuietWords(words, samples, sampleRate) };
+        const heard = await cutClip(
+          segments.filter((s) => s.source === clip.source),
+          start,
+          end,
+          true,
+        );
+        return { source: clip.source, words: await window.api.transcribeReplay(heard ?? clip.webm) };
       }),
     );
     return { clips, turns: turnsFromWords(streams) };
@@ -1403,22 +1407,16 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   findStop()?.click();
   await wait(1500);
   steps.emptyStop = document.querySelector('[aria-label="Session"]')?.textContent;
-  // 11. Words far quieter than the speech (the background) are dropped; a word's continuation
-  // goes with it.
-  const loudness = new Loudness();
-  loudness.add(2000, 0.3);
-  loudness.add(2000, 0.03);
-  loudness.add(1000, 0.3);
-  steps.quiet = loudness
-    .filter([
-      { text: "Loud", is_final: true, start_ms: 0, end_ms: 400 },
-      { text: " words", is_final: true, start_ms: 500, end_ms: 1200 },
-      { text: " qui", is_final: true, start_ms: 2400, end_ms: 2700 },
-      { text: "et", is_final: true, start_ms: 2700, end_ms: 3000 },
-      { text: " again", is_final: false, start_ms: 4200, end_ms: 4600 },
-    ])
-    .map((token) => token.text)
-    .join("");
+  // 11. The hiss gate: a faint hiss alone is muted; speech over it passes (as loud as it came).
+  const gate = createStreamGate(16000);
+  const hiss = (n: number) => Float32Array.from({ length: n }, () => (Math.random() - 0.5) * 0.002); // about −60 dBFS
+  const speech = (n: number) => Float32Array.from({ length: n }, (_, i) => 0.3 * Math.sin(i / 3) + (Math.random() - 0.5) * 0.002);
+  const rms = (a: Float32Array) => Math.sqrt(a.reduce((s, x) => s + x * x, 0) / Math.max(1, a.length));
+  gate.process(hiss(16000 * 4)); // the VAD learns the floor
+  const hissOut = gate.process(hiss(16000));
+  gate.process(speech(16000));
+  const speechOut = gate.process(speech(16000));
+  steps.hissGate = { hiss: rms(hissOut).toFixed(5), speech: rms(speechOut).toFixed(3) };
   window.__fdTestSocket = undefined;
   return steps;
 }

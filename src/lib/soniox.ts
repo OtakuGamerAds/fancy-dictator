@@ -8,7 +8,7 @@
  */
 
 import { PAUSE_MS, type PendingRun, type SpeechPiece } from "./dialogue";
-import { Loudness } from "./loudness";
+import { createStreamGate } from "./hissGate";
 
 const WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 // stt-rt-v6: stronger language switching within a sentence than v5, which Soniox retires on
@@ -202,8 +202,8 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
 
   let finalText = "";
   let pendingText = "";
-  // How loud the audio sent was, to leave out words said far more quietly than the speech.
-  const loudness = new Loudness();
+  // Muted while nobody speaks, so the hiss and murmur between words are not written as words.
+  const gate = createStreamGate(SAMPLE_RATE);
   let ended = false;
   let failed = false;
   let audioClosed = false;
@@ -266,12 +266,10 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     if (Array.isArray(message.tokens)) {
       let nextPending = "";
       const speech: Speech = { settled: [], pending: [] };
-      const tokens = message.tokens.filter((token): token is typeof token & { text: string } => typeof token?.text === "string");
-      const clear = new Set(loudness.filter(tokens.filter((token) => token.text !== "<end>" && token.text !== "<fin>")));
-      for (const token of tokens) {
+      for (const token of message.tokens) {
+        if (typeof token?.text !== "string") continue;
         if (token.text === "<end>") speech.settled.push("end");
         if (token.text === "<end>" || token.text === "<fin>") continue;
-        if (!clear.has(token)) continue; // background, far quieter than the speech
         // Consecutive words of one speaker make one run (not across a pause, which starts a paragraph).
         const runs: (SpeechPiece | PendingRun)[] = token.is_final ? speech.settled : speech.pending;
         const last = runs.at(-1);
@@ -298,8 +296,9 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   capture.port.onmessage = (event: MessageEvent<{ pcm: ArrayBuffer; level: number }>) => {
     options.onLevel?.(event.data.level);
     if (ended) return;
-    loudness.add((event.data.pcm.byteLength / 2 / SAMPLE_RATE) * 1000, event.data.level);
-    sendOrQueue(event.data.pcm);
+    const heard = new Int16Array(event.data.pcm);
+    const gated = gate.process(Float32Array.from(heard, (s) => s / 0x8000));
+    if (gated.length) sendOrQueue(Int16Array.from(gated, (s) => Math.round(Math.max(-1, Math.min(1, s)) * 0x7fff)).buffer);
   };
 
   /** Listen to `next` from now on: the new source joins before the old one leaves, so nothing is lost. */
