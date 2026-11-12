@@ -21,7 +21,8 @@ into a session you can read, edit, copy and translate while it is still being re
   ("الـ preference", not "البريفرنس"), without hesitations (آه، أمم); and **Your words**
   (Settings): names and English or German words you say, written as you list them ("rename",
   not "رينيم"; "Claude Code", not "كلود كود"). It starts with a list of software words; add your
-  own.
+  own. Each is also told to Soniox as said after the Arabic article ("الـ / بالـ / للـ / عالـ
+  preference"), which keeps it, and English words like it, in Latin letters there too.
 - Words stay faint (still being decided) until Soniox has heard a few seconds past them: a
   dictation does not ask Soniox where you stop (its endpoints), which would settle the words at
   every pause; Stop settles the rest at once. On real recordings this wrote mixed languages

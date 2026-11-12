@@ -26,7 +26,7 @@ const DEFAULT_SETTINGS = {
     "update", "feature", "bug", "testing", "rename", "display name", "settings", "labels", "toggle", "panel",
     "selection", "screenshot", "share screen", "pull request", "commit", "branch", "frontend", "backend", "API",
     "UI", "UX", "user experience", "dictation", "speech to text", "filler words", "provider", "Soniox", "Discord",
-    "Chrome", "Minecraft", "YouTube", "Wavelink", "usage", "hub",
+    "Chrome", "Minecraft", "YouTube", "Wavelink", "usage", "hub", "preference", "application",
   ],
   // What is said is translated live into this language by Soniox ("" for none).
   liveTranslateTo: "",

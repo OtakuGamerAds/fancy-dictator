@@ -23,6 +23,16 @@ const GERMAN_EXAMPLE = "Genau, das machen wir morgen.";
 
 /** Words Soniox keeps as written (it caps them; very long lists only cost a little more). */
 const MAX_TERMS = 500;
+/**
+ * The ways a word is said after the Arabic article ("بالـ preference"). Listed beside each of
+ * your words, Soniox writes the word in Latin letters there too, and others like it: on real
+ * recordings with live translation into Arabic, "بالبريفرنس" and "بالأبلكيشن" became "بالـ
+ * preference" and "بالـ application", and "Cloud Desktop" "Claude desktop" (the plain word
+ * alone in the list did not do it).
+ */
+const ARTICLES = ["الـ", "بالـ", "للـ", "عالـ"];
+/** Soniox takes a context of up to ~10,000 characters (8,000 tokens); stay well inside it. */
+const CONTEXT_CHARS = 7000;
 
 /** Your words, one per line or comma-separated, as typed in Settings. */
 export function parseTerms(text: string): string[] {
@@ -60,6 +70,15 @@ export function sonioxContext(languages: string[], terms: string[]): SonioxConte
   } else if (named.length > 1) {
     general.push({ key: "languages", value: `${named.join(", ")}, mixed within sentences; each word written in the language it is said in` });
   }
-  const listed = terms.slice(0, MAX_TERMS);
+  const plain = terms.slice(0, MAX_TERMS);
+  const forms = arabic && latin.length ? plain.filter((term) => /^\p{Script=Latin}/u.test(term)).flatMap((term) => ARTICLES.map((article) => `${article} ${term}`)) : [];
+  // Your words first, then their forms, as many as fit.
+  let size = JSON.stringify({ general, text }).length;
+  const listed: string[] = [];
+  for (const term of [...plain, ...forms]) {
+    size += term.length + 3;
+    if (size > CONTEXT_CHARS) break;
+    listed.push(term);
+  }
   return { general, ...(text ? { text } : {}), ...(listed.length ? { terms: listed } : {}) };
 }
