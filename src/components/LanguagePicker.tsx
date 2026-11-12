@@ -27,3 +27,24 @@ export function LanguagePicker({
     />
   );
 }
+
+const OFF = "off";
+const TRANSLATE_CHOICES = [{ value: OFF, label: "No live translation" }, ...CHOICES];
+
+/**
+ * Live translation, beside the languages: what is said is translated by Soniox as it is said,
+ * into the language picked, under each bubble. Off, it reads "Translate".
+ */
+export function LiveTranslatePicker({ value, onChange }: { value: string; onChange(language: string): void }) {
+  return (
+    <QuietSelect
+      value={value || OFF}
+      items={TRANSLATE_CHOICES}
+      label={value ? `Translate → ${value.toUpperCase()}` : "Translate"}
+      title={value ? `Translated live into ${nameOf(value)} as you speak` : "Translate live as you speak"}
+      ariaLabel="Live translation"
+      className={value ? undefined : "text-muted-foreground"}
+      onChange={(choice) => onChange(choice === OFF ? "" : choice)}
+    />
+  );
+}

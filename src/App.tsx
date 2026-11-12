@@ -53,7 +53,13 @@ interface Lane {
 const savedTurns = (turns: DialogueTurn[]): Turn[] =>
   turns
     .filter((turn) => turn.text.trim())
-    .map(({ id, speaker, text, recording }) => ({ id, speaker, text: text.trim(), ...(recording ? { recording } : {}) }));
+    .map(({ id, speaker, text, recording, translation }) => ({
+      id,
+      speaker,
+      text: text.trim(),
+      ...(recording ? { recording } : {}),
+      ...(translation?.trim() ? { translation: translation.trim() } : {}),
+    }));
 
 /** How many recordings a session has (its clips are numbered by recording). */
 const recordingsOf = (entry: HistoryEntry | undefined) =>
@@ -410,6 +416,7 @@ export function App() {
           model,
           languageHints: current.languages,
           context: sonioxContext(current.languages, current.terms ?? []),
+          translateTo: current.liveTranslateTo || undefined,
           source: lane.source,
           deviceId: current.micDeviceId || undefined,
           // In a conversation, the voices of each stream are told apart.
@@ -940,6 +947,10 @@ export function App() {
             dialogueRef.current?.editTurn(id, value);
             showDialogue();
           },
+          onTranslationInput: (id, value) => {
+            dialogueRef.current?.editTranslation(id, value);
+            showDialogue();
+          },
         };
 
   return (
@@ -999,6 +1010,12 @@ export function App() {
                 if (!settings) return;
                 setSettings({ ...settings, languages });
                 void window.api.saveSettings({ languages });
+              }}
+              liveTranslateTo={settings?.liveTranslateTo ?? ""}
+              onLiveTranslateChange={(liveTranslateTo) => {
+                if (!settings) return;
+                setSettings({ ...settings, liveTranslateTo });
+                void window.api.saveSettings({ liveTranslateTo });
               }}
               onToggleHistory={() => {
                 // Opened by hand, the list starts at the latest session.
@@ -1565,8 +1582,8 @@ async function probeReplay() {
  */
 function liveProbe(x: SnapshotSetters, settings: Settings) {
   const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
-  type Token = { text: string; is_final: boolean; start_ms?: number; end_ms?: number };
-  let socket: { emit(tokens: Token[]): void } | null = null;
+  type Token = { text: string; is_final: boolean; start_ms?: number; end_ms?: number; translation_status?: string };
+  let socket: { emit(tokens: Token[]): void; raw(data: string): void } | null = null;
   let streaming = 0;
   let ms = 0;
   let tick = 0;
@@ -1601,6 +1618,9 @@ function liveProbe(x: SnapshotSetters, settings: Settings) {
           emit(tokens: Token[]) {
             fake.onmessage?.({ data: JSON.stringify({ tokens }) });
           },
+          raw(data: string) {
+            fake.onmessage?.({ data });
+          },
         };
         setTimeout(() => {
           fake.readyState = 1;
@@ -1618,6 +1638,31 @@ function liveProbe(x: SnapshotSetters, settings: Settings) {
       document.querySelector<HTMLElement>('[aria-label="Click to talk"]')?.click();
       await wait(1500);
       return socket !== null;
+    },
+    /** A message Soniox sent in a real session, as it was. */
+    raw: (data: string) => socket?.raw(data),
+    /** Soniox's live translation of the words settled last. */
+    translate: (text: string) => socket?.emit([{ text, is_final: true, translation_status: "translation" }]),
+    /** The live translations shown, bubble by bubble. */
+    translations: () =>
+      [...document.querySelectorAll("#root li [data-speaker]")].flatMap((turn, i) => {
+        const box = turn.querySelector("[data-live-translation] [data-selectable]");
+        return box ? [`${i}: ${box.textContent}`] : [];
+      }),
+    /** Where a word is in the live translation under bubble `index`. */
+    translationRectOf(index: number, word: string) {
+      const box = document.querySelectorAll("#root li [data-live-translation] [data-selectable]")[index];
+      const walker = box ? document.createTreeWalker(box, NodeFilter.SHOW_TEXT) : null;
+      for (let node = walker?.nextNode(); node; node = walker!.nextNode()) {
+        const at = node.textContent!.indexOf(word);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + word.length);
+        const r = range.getClientRects()[0]!;
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom };
+      }
+      return null;
     },
     /** Settled words (then an endpoint) and faint ones, `gapMs` after the last. */
     say: (final: string, pending = "", end = false, gapMs = 300) => emit(final, pending, end, gapMs),
@@ -1720,6 +1765,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
       languages: ["ar", "en"],
       runOnStartup: false,
       terms: ["Claude Code", "T3 Code", "rename", "display name", "testing", "Genau"],
+      liveTranslateTo: "",
     };
     const scenes: Record<string, (x: SnapshotSetters) => void> = {
       "1-empty": (x) => {
@@ -1861,8 +1907,14 @@ function useSnapshotHooks(s: SnapshotSetters) {
         const turns = [
           { speaker: "mic:1", text: "شو رأيك نحط الإعدادات تحت", recording: 1 },
           { speaker: "mic:1", text: LONG_TEXT, recording: 1 },
-          { speaker: "mic:1", text: "لا، خليها فوق جنب السهم، أسهل.", recording: 2 },
+          {
+            speaker: "mic:1",
+            text: "لا، خليها فوق جنب السهم، أسهل.",
+            recording: 2,
+            translation: "No, keep it up there next to the arrow, it's easier.",
+          },
         ];
+        x.setSettings({ ...demoSettings, liveTranslateTo: "en" });
         x.setHistory([
           {
             id: "again",

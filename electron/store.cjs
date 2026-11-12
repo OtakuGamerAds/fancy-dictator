@@ -28,6 +28,8 @@ const DEFAULT_SETTINGS = {
     "UI", "UX", "user experience", "dictation", "speech to text", "filler words", "provider", "Soniox", "Discord",
     "Chrome", "Minecraft", "YouTube", "Wavelink", "usage", "hub",
   ],
+  // What is said is translated live into this language by Soniox ("" for none).
+  liveTranslateTo: "",
   cardAnchor: null,
 };
 

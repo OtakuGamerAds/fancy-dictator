@@ -22,6 +22,11 @@ into a session you can read, edit, copy and translate while it is still being re
   (Settings): names and English or German words you say, written as you list them ("rename",
   not "رينيم"; "Claude Code", not "كلود كود"). It starts with a list of software words; add your
   own.
+- **Translate** (beside the languages in the box) translates what is said live, into the
+  language picked, with Soniox's own real-time translation: each bubble's translation shows
+  under it as it is said, and is saved with the session. The bubble and its translation are
+  edited each on their own (one never changes the other). Selecting words to translate them
+  (below) works as well, apart from it. Replay's transcriptions are not translated.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
   recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
   muted): unmuting the computer makes it a conversation, and both muted pauses the recording

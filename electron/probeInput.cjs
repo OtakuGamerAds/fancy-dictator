@@ -76,6 +76,25 @@ module.exports = async function probeInput(win) {
     return `${flips} flips in 2.4 s`;
   };
   const steps = {};
+  // FD_PROBE_MESSAGES: a real Soniox session's messages (recorded), played into a recording.
+  if (process.env.FD_PROBE_MESSAGES) {
+    const messages = JSON.parse(require("fs").readFileSync(process.env.FD_PROBE_MESSAGES, "utf8"));
+    steps.started = await live("start()");
+    const t0 = Date.now();
+    for (const { at, data } of messages) {
+      if (JSON.parse(data).finished) continue; // the recording's own Stop ends it
+      const wait = t0 + at / 4 - Date.now();
+      if (wait > 0) await sleep(wait);
+      await live(`raw(${JSON.stringify(data)})`);
+    }
+    await sleep(300);
+    steps.live = { bubbles: (await state()).bubbles, translations: await live("translations()") };
+    wc.send("hotkey", { opened: true });
+    await sleep(1500);
+    steps.saved = { bubbles: (await state()).bubbles, translations: await live("translations()") };
+    await live("stop()");
+    return steps;
+  }
   const settle = async () => {
     // Editing ends with Esc (the bubble takes it); otherwise Esc would stop the recording.
     if ((await state()).editing) await key("Escape");
@@ -152,6 +171,25 @@ module.exports = async function probeInput(win) {
   } else steps.clickFaint = "no faint words";
   await settle();
 
+  // 5b. Live translation: under its bubble, edited on its own (and the bubble on its own).
+  await live("stream(false)");
+  await live(`translate("Hallo, das ist die erste Blase mit ein paar Wörtern.")`);
+  await sleep(200);
+  steps.translationShown = await live("translations()");
+  let t = await live(`translationRectOf(0, "erste")`);
+  await click(mid(t).x, mid(t).y);
+  await type("T");
+  steps.translationEdited = { translations: await live("translations()"), bubble0: (await state()).bubbles[0] };
+  await live(`translate(" Noch mehr.")`);
+  await sleep(200);
+  steps.translationGrewWhileEdited = await live("translations()");
+  await settle();
+  r = await rectOf(0, "there");
+  await click(mid(r).x, mid(r).y);
+  await type("B");
+  steps.bubbleEditedAlone = { bubble0: (await state()).bubbles[0], translations: await live("translations()") };
+  await settle();
+
   // 6. Words dragged over in the bubble being said, held a second while words settle, typed
   // over: none of the words settled meanwhile goes missing.
   await live("stream(true)");
@@ -193,6 +231,7 @@ module.exports = async function probeInput(win) {
   await key("Escape");
   await sleep(400);
   steps.savedAfterStop = (await state()).bubbles[1]?.slice(0, 60);
+  steps.savedTranslations = await live("translations()");
 
   }
 };

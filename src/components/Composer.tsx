@@ -13,7 +13,7 @@ import {
 } from "lucide-react";
 import { useEffect, useState } from "react";
 
-import { LanguagePicker } from "~/components/LanguagePicker";
+import { LanguagePicker, LiveTranslatePicker } from "~/components/LanguagePicker";
 import { Button } from "~/components/ui/button";
 import { Toggle, ToggleGroup } from "~/components/ui/toggle-group";
 import { UndoNotice } from "~/components/UndoNotice";
@@ -43,6 +43,9 @@ interface ComposerProps {
   onStop(): void;
   languages: string[];
   onLanguagesChange(languages: string[]): void;
+  /** What is said is translated live into this language ("" for none). */
+  liveTranslateTo: string;
+  onLiveTranslateChange(language: string): void;
   onToggleHistory(): void;
   /** The next recording starts a new session (shown blank under the box until then). */
   onNewSession(): void;
@@ -85,7 +88,16 @@ export function Composer(props: ComposerProps) {
  * The empty box is one big talk button. The language picker and the undo notice inside it
  * keep their own clicks (they stop the click from reaching the box).
  */
-function TalkSurface({ error, languages, onMic, onConversation, onReplay, onLanguagesChange }: ComposerProps) {
+function TalkSurface({
+  error,
+  languages,
+  liveTranslateTo,
+  onMic,
+  onConversation,
+  onReplay,
+  onLanguagesChange,
+  onLiveTranslateChange,
+}: ComposerProps) {
   return (
     <div
       role="button"
@@ -147,8 +159,9 @@ function TalkSurface({ error, languages, onMic, onConversation, onReplay, onLang
         </span>
       </div>
       <div className="flex min-h-8 items-center justify-between gap-2 px-1.5 pb-1.5">
-        <span onClick={(event) => event.stopPropagation()}>
+        <span className="flex items-center" onClick={(event) => event.stopPropagation()}>
           <LanguagePicker value={languages} onChange={onLanguagesChange} />
+          <LiveTranslatePicker value={liveTranslateTo} onChange={onLiveTranslateChange} />
         </span>
         {/* "Copied, Ctrl+Z to undo" right after the box was emptied. */}
         <span className="min-w-0 flex-1" onClick={(event) => event.stopPropagation()}>

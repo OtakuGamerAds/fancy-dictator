@@ -49,6 +49,8 @@ export interface LiveSession {
   pastPending: boolean;
   onTextInput(text: string): void;
   onTurnInput(id: string, text: string): void;
+  /** A turn's live translation edited while recording. */
+  onTranslationInput(id: string, text: string): void;
 }
 
 interface HistoryPanelProps {
@@ -342,9 +344,9 @@ function HistoryMessage({
   // One voice (a dictation talked into again, a bubble per recording): no names above them.
   const named = !!numbers && numbers.size > 1;
   // A saved turn edited: the written-out conversation (what Copy takes) follows the turns.
-  const editTurn = (index: number, text: string) => {
+  const editTurn = (index: number, change: Partial<Turn>) => {
     if (!savedTurns) return;
-    const next: Turn[] = savedTurns.map((turn, i) => (i === index ? { ...turn, text } : turn));
+    const next: Turn[] = savedTurns.map((turn, i) => (i === index ? { ...turn, ...change } : turn));
     onEdit({ ...entry, turns: next, text: formatConversation(next) });
   };
 
@@ -423,7 +425,11 @@ function HistoryMessage({
                   pending={turn.pending}
                   // Folded, but not the one being said (the newest words would be cut off).
                   foldable={!expanded && !(live && (index === turns.length - 1 || turn.pending.trim()))}
-                  onEdit={live ? undefined : (text) => editTurn(index, text)}
+                  onEdit={live ? undefined : (text) => editTurn(index, { text })}
+                  onTranslationEdit={live ? undefined : (translation) => editTurn(index, { translation })}
+                  onTranslationLiveEdit={
+                    live && !turn.id.startsWith("pending:") ? (text) => live.onTranslationInput(turn.id, text) : undefined
+                  }
                   // Its settled words can be edited while recording, as plain dictation can.
                   onLiveEdit={live && !turn.id.startsWith("pending:") ? (text) => live.onTurnInput(turn.id, text) : undefined}
                 />

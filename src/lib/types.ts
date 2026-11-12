@@ -17,6 +17,8 @@ export interface Settings {
   translateTo: string;
   /** Your words (names, English and German terms): Soniox writes them as listed. */
   terms: string[];
+  /** What is said is translated live into this language by Soniox ("" for none). */
+  liveTranslateTo: string;
 }
 
 /** A piece of Replay's recording (about half a minute of one source). */

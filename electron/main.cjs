@@ -342,6 +342,7 @@ function sanitize(patch) {
   if (typeof patch.replay === "boolean") out.replay = patch.replay;
   if (Number.isFinite(patch.replayMinutes)) out.replayMinutes = Math.min(90, Math.max(1, Math.round(patch.replayMinutes)));
   if (typeof patch.translateTo === "string" && /^[a-z]{2,3}$/.test(patch.translateTo)) out.translateTo = patch.translateTo;
+  if (typeof patch.liveTranslateTo === "string" && /^([a-z]{2,3})?$/.test(patch.liveTranslateTo)) out.liveTranslateTo = patch.liveTranslateTo;
   if (Array.isArray(patch.terms)) out.terms = patch.terms.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim().slice(0, 100)).slice(0, 500);
   return out;
 }

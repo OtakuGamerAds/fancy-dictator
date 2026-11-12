@@ -82,6 +82,8 @@ export interface StartOptions {
   languageHints: string[];
   /** Told to Soniox before it hears anything: how to write mixed languages, and your words. */
   context?: SonioxContext;
+  /** Translate what is said, live, into this language (Soniox's one-way translation). */
+  translateTo?: string;
   /** Where to listen first (defaults to the microphone). */
   source?: AudioSource;
   deviceId?: string;
@@ -254,6 +256,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
         num_channels: 1,
         ...(options.languageHints.length ? { language_hints: options.languageHints } : {}),
         ...(options.context ? { context: options.context } : {}),
+        ...(options.translateTo ? { translation: { type: "one_way", target_language: options.translateTo } } : {}),
         enable_endpoint_detection: true,
         // Soniox's advice for dictation with pauses mid-sentence: an endpoint (which settles the
         // words before it) a little less readily.
@@ -270,7 +273,7 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
 
   ws.onmessage = (event) => {
     let message: {
-      tokens?: { text?: string; is_final?: boolean; speaker?: string; start_ms?: number; end_ms?: number }[];
+      tokens?: { text?: string; is_final?: boolean; speaker?: string; start_ms?: number; end_ms?: number; translation_status?: string }[];
       finished?: boolean;
       error_code?: number;
       error_message?: string;
@@ -289,11 +292,26 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
       const speech: Speech = { settled: [], pending: [] };
       for (const token of message.tokens) {
         if (typeof token?.text !== "string") continue;
+        // The translation is kept apart from the words said (only its settled part is shown).
+        // It comes settled, after the words it translates, and stays in that order with them.
+        if (token.translation_status === "translation") {
+          const last = speech.settled.at(-1);
+          if (!token.is_final) continue;
+          if (last && last !== "end" && "translated" in last) last.translated += token.text;
+          else speech.settled.push({ translated: token.text });
+          continue;
+        }
         if (token.text === "<end>") speech.settled.push("end");
         if (token.text === "<end>" || token.text === "<fin>") continue;
         // Consecutive words of one speaker make one run (not across a pause, which starts a paragraph).
         const runs: (SpeechPiece | PendingRun)[] = token.is_final ? speech.settled : speech.pending;
         const last = runs.at(-1);
+        if (last && last !== "end" && "translated" in last) {
+          runs.push({ speaker: token.speaker, text: token.text, startMs: token.start_ms, endMs: token.end_ms });
+          if (token.is_final) finalText += token.text;
+          else nextPending += token.text;
+          continue;
+        }
         const paused = last && last !== "end" && token.start_ms !== undefined && last.endMs !== undefined && token.start_ms - last.endMs >= PAUSE_MS;
         if (last && last !== "end" && last.speaker === token.speaker && !paused) {
           last.text += token.text;

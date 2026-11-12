@@ -34,6 +34,8 @@ export interface Turn {
   text: string;
   /** The recording it was said in (1, 2, …, as the session's clips are numbered). */
   recording?: number;
+  /** Its live translation (Soniox's), edited on its own. */
+  translation?: string;
 }
 
 export interface DialogueTurn extends Turn {
@@ -49,7 +51,7 @@ export interface DialogueBlock extends DialogueTurn {
  * Words a stream settled, as Soniox sent them: runs of one speaker, and where someone stopped.
  * The times (ms into the stream) say where the run's words begin and end.
  */
-export type SpeechPiece = { speaker?: string; text: string; startMs?: number; endMs?: number } | "end";
+export type SpeechPiece = { speaker?: string; text: string; startMs?: number; endMs?: number } | { translated: string } | "end";
 /** Words a stream is still deciding on, by speaker. */
 export interface PendingRun {
   speaker?: string;
@@ -146,6 +148,8 @@ interface Lane {
   lastEndMs: number | null;
   /** A pause was heard: the next words start a paragraph of their own. */
   afterPause: boolean;
+  /** The turn this stream last added words to: their translation, coming after them, goes there. */
+  lastTurn: string | null;
 }
 
 /** The voice of a Soniox speaker id in a stream (a stream without diarization is speaker 1). */
@@ -237,7 +241,7 @@ export class Dialogue {
       continueLast && last?.speaker === voice
         ? { id: last.id, start: last.text.length, fresh: false, startedAt: this.now() }
         : null;
-    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null, lastEndMs: null, afterPause: false });
+    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null, lastEndMs: null, afterPause: false, lastTurn: null });
   }
 
   /**
@@ -249,13 +253,21 @@ export class Dialogue {
     this.recording = recording;
   }
 
-  /** New settled words from a stream, in order, and the words it is still deciding on. */
+  /**
+   * New settled words from a stream, in order, and the words it is still deciding on. A live
+   * translation among them is of the words before it: it goes with the turn they went to.
+   */
   update(laneId: number, settled: SpeechPiece[], pending: PendingRun[]) {
     const lane = this.lanes.get(laneId);
     if (!lane) return;
     for (const piece of settled) {
       if (piece === "end") {
         this.closeTurn(lane);
+        continue;
+      }
+      if ("translated" in piece) {
+        const turn = this.turns.find((t) => t.id === lane.lastTurn);
+        if (turn) turn.translation = turn.translation ? turn.translation + piece.translated : piece.translated.trimStart();
         continue;
       }
       if (piece.text.trim()) this.notePause(lane, piece.startMs);
@@ -306,6 +318,12 @@ export class Dialogue {
       lane.open.start = Math.min(lane.open.start, text.length);
     }
     if (!open && !text.trim()) this.remove(id);
+  }
+
+  /** A turn's translation edited by hand: what comes later is added after it. */
+  editTranslation(id: string, text: string) {
+    const turn = this.turns.find((t) => t.id === id);
+    if (turn) turn.translation = text;
   }
 
   /**
@@ -366,6 +384,7 @@ export class Dialogue {
     if (!turn) return;
     turn.text = joinSpoken(turn.text, text, !open.fresh);
     open.fresh = false;
+    if (text.trim()) lane.lastTurn = turn.id;
     if (lane.source === "computer") {
       const now = this.now();
       this.heard.push({ at: now, text });
@@ -421,11 +440,13 @@ export class Dialogue {
     if (!before || !after || before.speaker !== after.speaker || this.sealed.has(before.id) || this.sealed.has(after.id)) return;
     const gap = before.text && after.text && !/\s$/u.test(before.text) && !/^\s/u.test(after.text) ? " " : "";
     for (const lane of this.lanes.values()) {
+      if (lane.lastTurn === after.id) lane.lastTurn = before.id;
       if (lane.open?.id !== after.id) continue;
       lane.open.id = before.id;
       lane.open.start += before.text.length + gap.length;
     }
     before.text = before.text + gap + after.text;
+    if (after.translation) before.translation = before.translation ? `${before.translation} ${after.translation.trimStart()}` : after.translation;
     this.turns.splice(index, 1);
   }
 }

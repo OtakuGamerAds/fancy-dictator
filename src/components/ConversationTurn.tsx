@@ -120,6 +120,8 @@ export function ConversationTurn({
   foldable = false,
   onEdit,
   onLiveEdit,
+  onTranslationEdit,
+  onTranslationLiveEdit,
   onFocus,
 }: {
   turn: Turn;
@@ -134,6 +136,9 @@ export function ConversationTurn({
   onEdit?: (text: string) => void;
   /** …or with every keystroke (a conversation being recorded). */
   onLiveEdit?: (text: string) => void;
+  /** Its live translation edited, on its own: when editing finishes, or with every keystroke. */
+  onTranslationEdit?: (text: string) => void;
+  onTranslationLiveEdit?: (text: string) => void;
   onFocus?: () => void;
 }) {
   // The space before the faint words stays between the words, not at the isolated edge.
@@ -181,6 +186,41 @@ export function ConversationTurn({
           <bdi className="text-muted-foreground/70">{pending.slice(lead.length)}</bdi>
         </p>
       </div>
+      {turn.translation && (
+        <TurnTranslation text={turn.translation} onEdit={onTranslationEdit} onLiveEdit={onTranslationLiveEdit} />
+      )}
+    </div>
+  );
+}
+
+/**
+ * A turn's live translation (Soniox's, as it was said), under its bubble: its own words,
+ * edited on their own (the bubble's stay as they are, and the other way round). Quieter than a
+ * message, as the translation of selected words is.
+ */
+function TurnTranslation({
+  text,
+  onEdit,
+  onLiveEdit,
+}: {
+  text: string;
+  onEdit?: (text: string) => void;
+  onLiveEdit?: (text: string) => void;
+}) {
+  const editable = onEdit || onLiveEdit;
+  return (
+    <div
+      data-translation
+      data-live-translation
+      data-no-drag
+      dir={textDirection(text)}
+      className={cn("min-w-0 max-w-[80%] rounded-2xl border border-border px-3 py-2 text-sm leading-relaxed", editable && "cursor-text")}
+      onClick={editable ? editOnClick : undefined}
+    >
+      <p className="select-none text-2xs text-muted-foreground">Translation</p>
+      <p data-selectable className="whitespace-pre-wrap wrap-break-word text-foreground">
+        {editable ? <EditableText text={text} onCommit={onEdit} onInput={onLiveEdit} /> : text}
+      </p>
     </div>
   );
 }
