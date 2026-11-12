@@ -90,6 +90,12 @@ export interface StartOptions {
   /** Tell the voices apart (conversation mode): each word then says which speaker it is by. */
   diarize?: boolean;
   /**
+   * Have Soniox say where each speaker stops (its endpoints, `<end>`), which conversation turns
+   * end at. An endpoint also settles the words before it at once; without them Soniox settles
+   * each word after hearing several seconds past it, and writes mixed languages better.
+   */
+  endpoints?: boolean;
+  /**
    * The settled text so far and the words still being decided on; and, for conversation mode,
    * what this message added by speaker, with where they stopped (Soniox endpoints).
    */
@@ -257,10 +263,8 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
         ...(options.languageHints.length ? { language_hints: options.languageHints } : {}),
         ...(options.context ? { context: options.context } : {}),
         ...(options.translateTo ? { translation: { type: "one_way", target_language: options.translateTo } } : {}),
-        enable_endpoint_detection: true,
-        // Soniox's advice for dictation with pauses mid-sentence: an endpoint (which settles the
-        // words before it) a little less readily.
-        endpoint_sensitivity: -0.3,
+        // Soniox's advice for speech with pauses mid-sentence: an endpoint a little less readily.
+        ...(options.endpoints ? { enable_endpoint_detection: true, endpoint_sensitivity: -0.3 } : {}),
         // Follow switches between languages (e.g. Arabic, then German) sentence by sentence.
         // The languages picked in the composer are the main lever: hints bias recognition
         // toward them, so a language that is spoken should be among them (or none: auto).

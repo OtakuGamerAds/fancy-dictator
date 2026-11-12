@@ -150,6 +150,8 @@ interface Lane {
   afterPause: boolean;
   /** The turn this stream last added words to: their translation, coming after them, goes there. */
   lastTurn: string | null;
+  /** Soniox says where this stream's speakers stop (`<end>`); dictation streams don't. */
+  endpoints: boolean;
 }
 
 /** The voice of a Soniox speaker id in a stream (a stream without diarization is speaker 1). */
@@ -232,16 +234,17 @@ export class Dialogue {
 
   /**
    * A stream joins. With `continueLast`, its first words carry on the last paragraph when it
-   * is this stream's (the box was already being dictated into, maybe mid-word).
+   * is this stream's (the box was already being dictated into, maybe mid-word). `endpoints`:
+   * Soniox says where its speakers stop.
    */
-  addLane(laneId: number, source: Source, continueLast = false) {
+  addLane(laneId: number, source: Source, continueLast = false, endpoints = true) {
     const voice = voiceOf(source);
     const last = this.turns.at(-1);
     const open =
       continueLast && last?.speaker === voice
         ? { id: last.id, start: last.text.length, fresh: false, startedAt: this.now() }
         : null;
-    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null, lastEndMs: null, afterPause: false, lastTurn: null });
+    this.lanes.set(laneId, { source, voice, open, pending: "", pendingVoice: null, lastEndMs: null, afterPause: false, lastTurn: null, endpoints });
   }
 
   /**
@@ -397,6 +400,12 @@ export class Dialogue {
    * recording), or a new one.
    */
   private openTurn(lane: Lane) {
+    // A stream Soniox gives no endpoints for (a dictation that became a conversation) has
+    // stopped when someone else starts and it has no words in the making: what it says next
+    // comes after them.
+    for (const other of this.lanes.values()) {
+      if (other !== lane && !other.endpoints && !other.pending.trim()) this.closeTurn(other);
+    }
     const last = this.turns.at(-1);
     const takenByOther = (id: string) => [...this.lanes.values()].some((other) => other !== lane && other.open?.id === id);
     const startedAt = this.now();

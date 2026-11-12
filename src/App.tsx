@@ -48,6 +48,8 @@ interface Lane {
   level: number;
   /** Set while the stream finishes because its source was switched off. */
   leaving: Promise<void> | null;
+  /** Soniox says where its speakers stop: in a conversation only (see StartOptions.endpoints). */
+  endpoints: boolean;
 }
 
 const savedTurns = (turns: DialogueTurn[]): Turn[] =>
@@ -406,9 +408,12 @@ export function App() {
         pendingRuns: [],
         level: 0,
         leaving: null,
+        // Turns need to know where each side stops; a dictation is better off without: Soniox
+        // then settles words later, with more heard after them (measured on real recordings).
+        endpoints: diarizeRef.current,
       }),
     );
-    for (const lane of lanes) dialogueRef.current?.addLane(lane.id, lane.source);
+    for (const lane of lanes) dialogueRef.current?.addLane(lane.id, lane.source, false, lane.endpoints);
     const results = await Promise.allSettled(
       lanes.map(async (lane) => {
         lane.session = await startSoniox({
@@ -421,6 +426,7 @@ export function App() {
           deviceId: current.micDeviceId || undefined,
           // In a conversation, the voices of each stream are told apart.
           diarize: diarizeRef.current,
+          endpoints: lane.endpoints,
           onText: (final, pending, speech) => laneText(lane, final, pending, speech),
           onLevel: (level) => laneLevel(lane, level),
           onStream: (stream) => clip?.add(lane.source, stream),
@@ -543,7 +549,7 @@ export function App() {
         // running carries on in it as its speaker.
         const dialogue = ensureDialogue();
         for (const lane of lanes) {
-          dialogue.addLane(lane.id, lane.source, spokenContinues());
+          dialogue.addLane(lane.id, lane.source, spokenContinues(), lane.endpoints);
           dialogue.update(lane.id, [], lane.pendingRuns);
         }
         setPendingText("");

@@ -22,6 +22,10 @@ into a session you can read, edit, copy and translate while it is still being re
   (Settings): names and English or German words you say, written as you list them ("rename",
   not "رينيم"; "Claude Code", not "كلود كود"). It starts with a list of software words; add your
   own.
+- Words stay faint (still being decided) until Soniox has heard a few seconds past them: a
+  dictation does not ask Soniox where you stop (its endpoints), which would settle the words at
+  every pause; Stop settles the rest at once. On real recordings this wrote mixed languages
+  better and nothing worse. A conversation keeps the endpoints: its bubbles end at them.
 - **Translate** (beside the languages in the box) translates what is said live, into the
   language picked, with Soniox's own real-time translation: each bubble's translation shows
   under it as it is said, and is saved with the session. The bubble and its translation are
