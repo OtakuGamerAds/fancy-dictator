@@ -20,6 +20,8 @@ import {
   type Turn,
   voiceOf,
 } from "~/lib/dialogue";
+import { withoutFillers } from "~/lib/fillers";
+import { sonioxContext } from "~/lib/sonioxContext";
 import {
   type AudioSource,
   describeStartError,
@@ -52,7 +54,7 @@ interface Lane {
 const savedTurns = (turns: DialogueTurn[]): Turn[] =>
   turns
     .filter((turn) => turn.text.trim())
-    .map(({ speaker, text, recording }) => ({ speaker, text: text.trim(), ...(recording ? { recording } : {}) }));
+    .map(({ id, speaker, text, recording }) => ({ id, speaker, text: text.trim(), ...(recording ? { recording } : {}) }));
 
 /** How many recordings a session has (its clips are numbered by recording). */
 const recordingsOf = (entry: HistoryEntry | undefined) =>
@@ -292,7 +294,7 @@ export function App() {
     entryId.current = entry.id;
     entryCreatedAt.current = entry.createdAt;
     setDurationMs(entry.durationMs);
-    if (entry.turns?.length) writeTurns(entry.turns.map((turn) => ({ ...turn, id: newTurnId() })));
+    if (entry.turns?.length) writeTurns(entry.turns.map((turn) => ({ ...turn, id: turn.id ?? newTurnId() })));
     else writeText(entry.text);
   };
 
@@ -408,6 +410,7 @@ export function App() {
           apiKey: current.sonioxApiKey,
           model,
           languageHints: current.languages,
+          context: sonioxContext(current.languages, current.terms ?? []),
           source: lane.source,
           deviceId: current.micDeviceId || undefined,
           // In a conversation, the voices of each stream are told apart.
@@ -596,6 +599,10 @@ export function App() {
   };
 
   /** Replay's part from `start` until `end`: a clip per source and the conversation in it. */
+  const replayContext = () => {
+    const current = latest.current.settings;
+    return current ? sonioxContext(current.languages, current.terms ?? []) : undefined;
+  };
   const transcribePast = async (start: number, end: number, sources: AudioSource[]) => {
     const { segments } = await loadReplay();
     const clips = (
@@ -619,7 +626,8 @@ export function App() {
           end,
           true,
         );
-        return { source: clip.source, words: await window.api.transcribeReplay(heard ?? clip.webm) };
+        // Hesitations (آه، أمم، um) left out, as live.
+        return { source: clip.source, words: withoutFillers(await window.api.transcribeReplay(heard ?? clip.webm, replayContext())) };
       }),
     );
     return { clips, turns: turnsFromWords(streams) };
@@ -1375,17 +1383,17 @@ async function probeConversation(x: SnapshotSetters, settings: Settings) {
   await wait(1500);
   const again = (await window.api.getHistory())[0];
   steps.again = { text: again?.text, turns: again?.turns, shown: bubbles() };
-  // 9. Silence of a few seconds, then words again: a bubble of its own, in the same recording.
+  // 9. Silence of over 10 seconds, then words again: a bubble of its own, in the same recording.
   await click('[aria-label="New session"]');
   await click('[aria-label="Click to talk"]');
   sockets.mic?.emit([{ text: "Before the pause.", is_final: true, start_ms: 0, end_ms: 1200 }]);
   await wait(60);
-  sockets.mic?.emit([{ text: "After", is_final: false, start_ms: 7000, end_ms: 7400 }]);
+  sockets.mic?.emit([{ text: "After", is_final: false, start_ms: 12000, end_ms: 12400 }]);
   await wait(60);
   steps.pauseLive = bubbles();
-  sockets.mic?.emit([{ text: "After it.", is_final: true, start_ms: 7000, end_ms: 7800 }]);
+  sockets.mic?.emit([{ text: "After it.", is_final: true, start_ms: 12000, end_ms: 12800 }]);
   await wait(60);
-  sockets.mic?.emit([{ text: " Right after.", is_final: true, start_ms: 8200, end_ms: 9000 }]);
+  sockets.mic?.emit([{ text: " Right after.", is_final: true, start_ms: 13200, end_ms: 14000 }]);
   await wait(60);
   findStop()?.click();
   await wait(1500);
@@ -1553,6 +1561,133 @@ async function probeReplay() {
   };
 }
 
+/**
+ * `FD_PROBE=select pnpm probe`: a dictation fed by a scripted socket, for electron/probeInput.cjs
+ * to select and edit its words with real mouse and keyboard input while words keep coming.
+ */
+function liveProbe(x: SnapshotSetters, settings: Settings) {
+  const wait = (ms: number) => new Promise((r) => setTimeout(r, ms));
+  type Token = { text: string; is_final: boolean; start_ms?: number; end_ms?: number };
+  let socket: { emit(tokens: Token[]): void } | null = null;
+  let streaming = 0;
+  let ms = 0;
+  let tick = 0;
+  /** Every word the stream settled, to tell whether any went missing. */
+  const settled: string[] = [];
+  const emit = (final: string, pending = "", end = false, gapMs = 300) => {
+    const tokens: Token[] = [];
+    ms += gapMs;
+    if (final.startsWith(" w")) settled.push(final.trim());
+    if (final) tokens.push({ text: final, is_final: true, start_ms: ms, end_ms: ms + 250 });
+    if (end) tokens.push({ text: "<end>", is_final: true });
+    if (pending) tokens.push({ text: pending, is_final: false, start_ms: ms + 300, end_ms: ms + 500 });
+    ms += 250;
+    socket?.emit(tokens);
+  };
+  const words = (node: Element | null) => node?.closest("[data-editable]") ?? null;
+  return {
+    async start() {
+      window.__fdTestSocket = () => {
+        const fake = {
+          readyState: 0 as number,
+          onopen: null as null | (() => void),
+          onmessage: null as null | ((event: { data: string }) => void),
+          onerror: null,
+          onclose: null,
+          send(data: unknown) {
+            if (data === "") setTimeout(() => fake.onmessage?.({ data: JSON.stringify({ tokens: [], finished: true }) }), 30);
+          },
+          close() {
+            fake.readyState = 3;
+          },
+          emit(tokens: Token[]) {
+            fake.onmessage?.({ data: JSON.stringify({ tokens }) });
+          },
+        };
+        setTimeout(() => {
+          fake.readyState = 1;
+          fake.onopen?.();
+        }, 30);
+        socket = fake;
+        return fake as unknown as WebSocket;
+      };
+      x.setSettings(settings);
+      x.setView("main");
+      x.setHistory([]);
+      x.setBlocks(null);
+      x.setText("");
+      await wait(300);
+      document.querySelector<HTMLElement>('[aria-label="Click to talk"]')?.click();
+      await wait(1500);
+      return socket !== null;
+    },
+    /** Settled words (then an endpoint) and faint ones, `gapMs` after the last. */
+    say: (final: string, pending = "", end = false, gapMs = 300) => emit(final, pending, end, gapMs),
+    /** Words keep coming, as when talking: faint ones change every 150 ms, settling every 4th. */
+    stream(on: boolean) {
+      clearInterval(streaming);
+      if (!on) return;
+      streaming = window.setInterval(() => {
+        tick++;
+        const word = ` w${tick}`;
+        if (tick % 4 === 0) emit(word, " next", false, 0);
+        else emit("", `${word} maybe`, false, 0);
+      }, 150);
+    },
+    state() {
+      const active = document.activeElement as HTMLElement | null;
+      const selection = getSelection();
+      return {
+        editing: !!active?.isContentEditable,
+        activeBubble: active?.isContentEditable ? active.textContent : null,
+        selected: selection?.toString() ?? "",
+        collapsed: selection?.isCollapsed ?? true,
+        caretInEditing: !!(active?.isContentEditable && selection?.focusNode && active.contains(selection.focusNode)),
+        bubbles: [...document.querySelectorAll("#root li [data-turn-text], #root li > div > p[data-selectable]")].map((b) => b.textContent),
+      };
+    },
+    /** Where a word is on screen (its first box), in bubble `index` (counting from 0). */
+    rectOf(index: number, word: string) {
+      const bubble = document.querySelectorAll("#root li [data-turn-text], #root li > div > p[data-selectable]")[index];
+      const walker = bubble ? document.createTreeWalker(bubble, NodeFilter.SHOW_TEXT) : null;
+      for (let node = walker?.nextNode(); node; node = walker!.nextNode()) {
+        const at = node.textContent!.indexOf(word);
+        if (at < 0) continue;
+        const range = document.createRange();
+        range.setStart(node, at);
+        range.setEnd(node, at + word.length);
+        const r = range.getClientRects()[0]!;
+        return { left: r.left, right: r.right, top: r.top, bottom: r.bottom, editable: !!words(node.parentElement) };
+      }
+      return null;
+    },
+    /** Settled words of the stream no bubble shows. */
+    missing() {
+      const shown = new Set(
+        [...document.querySelectorAll("#root li [data-turn-text], #root li > div > p[data-selectable]")].flatMap((b) => (b.textContent ?? "").split(/\s+/)),
+      );
+      return settled.filter((word) => !shown.has(word));
+    },
+    /** The list scrolled to its top. */
+    scrollTop() {
+      const list = document.querySelector("#root ul");
+      if (list) list.scrollTop = 0;
+    },
+    /** The caret's box, to watch it blink. */
+    caretRect() {
+      const selection = getSelection();
+      if (!selection?.rangeCount) return null;
+      const r = selection.getRangeAt(0).getClientRects()[0] ?? selection.getRangeAt(0).getBoundingClientRect();
+      return { left: r.left, top: r.top, bottom: r.bottom };
+    },
+    stop() {
+      clearInterval(streaming);
+      window.__fdTestSocket = undefined;
+    },
+  };
+}
+export type LiveProbe = ReturnType<typeof liveProbe>;
+
 interface SnapshotSetters {
   setView(v: View): void;
   setHistoryOpen(v: boolean): void;
@@ -1586,6 +1721,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
       translateTo: "en",
       languages: ["ar", "en"],
       runOnStartup: false,
+      terms: ["Claude Code", "T3 Code", "rename", "display name", "testing", "Genau"],
     };
     const scenes: Record<string, (x: SnapshotSetters) => void> = {
       "1-empty": (x) => {
@@ -1830,6 +1966,7 @@ function useSnapshotHooks(s: SnapshotSetters) {
           ownAudio: await probeOwnAudio(),
         };
       },
+      live: liveProbe(setters.current, demoSettings),
       views: () => Object.keys(scenes),
       apply: (name) => scenes[name]?.(setters.current),
       show: async (name) => {

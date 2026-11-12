@@ -67,7 +67,8 @@ export function EditableText({
       onInput={(event) => onInput?.(event.currentTarget.textContent ?? "")}
       onKeyDown={(event) => {
         if (event.key !== "Escape" && event.key !== "Enter") return;
-        event.preventDefault(); // not the window's Esc, and no line break
+        // Ctrl+Enter still ends the session (the window's); Esc and Enter only finish editing.
+        if (!(event.key === "Enter" && (event.ctrlKey || event.metaKey))) event.preventDefault();
         event.currentTarget.blur();
       }}
       onBlur={(event) => {

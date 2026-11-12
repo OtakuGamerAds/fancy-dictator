@@ -342,6 +342,7 @@ function sanitize(patch) {
   if (typeof patch.replay === "boolean") out.replay = patch.replay;
   if (Number.isFinite(patch.replayMinutes)) out.replayMinutes = Math.min(90, Math.max(1, Math.round(patch.replayMinutes)));
   if (typeof patch.translateTo === "string" && /^[a-z]{2,3}$/.test(patch.translateTo)) out.translateTo = patch.translateTo;
+  if (Array.isArray(patch.terms)) out.terms = patch.terms.filter((t) => typeof t === "string" && t.trim()).map((t) => t.trim().slice(0, 100)).slice(0, 500);
   return out;
 }
 
@@ -396,7 +397,7 @@ function registerIpc() {
   ipcMain.handle("replay:read", (_e, file) => replay.read(file));
   ipcMain.handle("replay:trim", (_e, ms) => replay.trimBefore(Number(ms)));
   ipcMain.handle("replay:clear", () => replay.clear());
-  ipcMain.handle("replay:transcribe", (_e, webm) => sonioxAsync.transcribe(settings.sonioxApiKey, webm, settings.languages));
+  ipcMain.handle("replay:transcribe", (_e, webm, context) => sonioxAsync.transcribe(settings.sonioxApiKey, webm, settings.languages, context));
   // Selected words translated (Google Translate); the snapshot run never goes online.
   ipcMain.handle("translate:text", (_e, text, to) =>
     SNAPSHOT ? { text: "a quick message to the work team", from: "ar" } : translate.translate(text, to),
@@ -445,6 +446,12 @@ async function runSnapshots() {
   win.showInactive();
   // `pnpm probe` only runs the probe; `pnpm snapshot 5e 5j` renders only the views whose names
   // start with those (all of them without names).
+  if (process.env.FD_PROBE === "select") {
+    console.log("[probe]", JSON.stringify(await require("./probeInput.cjs")(win), null, 1));
+    quitting = true;
+    app.quit();
+    return;
+  }
   if (process.env.FD_PROBE) {
     console.log("[probe]", JSON.stringify(await win.webContents.executeJavaScript("window.__fdSnapshot.probe()")));
     quitting = true;

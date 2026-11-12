@@ -19,6 +19,15 @@ const DEFAULT_SETTINGS = {
   replayMinutes: 60,
   // The language selected words are translated into.
   translateTo: "en",
+  // Your words (names, English and German terms), told to Soniox: written as listed. A start,
+  // edited in Settings.
+  terms: [
+    "Claude", "Claude Code", "Codex", "ChatGPT", "T3 Code", "agent", "prompt", "harness", "CLI", "desktop app",
+    "update", "feature", "bug", "testing", "rename", "display name", "settings", "labels", "toggle", "panel",
+    "selection", "screenshot", "share screen", "pull request", "commit", "branch", "frontend", "backend", "API",
+    "UI", "UX", "user experience", "dictation", "speech to text", "filler words", "provider", "Soniox", "Discord",
+    "Chrome", "Minecraft", "YouTube", "Wavelink", "usage", "hub",
+  ],
   cardAnchor: null,
 };
 

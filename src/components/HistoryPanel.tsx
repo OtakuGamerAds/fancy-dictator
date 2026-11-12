@@ -118,7 +118,10 @@ export function HistoryPanel({
       clearTimeout(timer);
     };
   }, [pressed]);
-  const held = live ? (pressed ?? selection?.turn ?? null) : null;
+  // Words being edited (a bubble clicked into): it takes the words still coming as they come,
+  // added after what is there, and the list stays where it is under the caret.
+  const [editing, setEditing] = useState(false);
+  const held = live && !editing ? (pressed ?? selection?.turn ?? null) : null;
   // Every bubble of the session unfolded at once ("Show all"), offered while one is folded.
   const [expanded, setExpanded] = useState(false);
   useEffect(() => setExpanded(false), [entry?.id]);
@@ -144,8 +147,8 @@ export function HistoryPanel({
   useLayoutEffect(() => {
     const list = listRef.current;
     // Not while words are being selected: the list would move under the pointer.
-    if (list && live && held === null && scroll.following.current) list.scrollTop = list.scrollHeight;
-  }, [live, live?.entry.text, live?.pending, live?.blocks, held, scroll.following]);
+    if (list && live && held === null && !editing && scroll.following.current) list.scrollTop = list.scrollHeight;
+  }, [live, live?.entry.text, live?.pending, live?.blocks, held, editing, scroll.following]);
 
   if (!entry && !blank) {
     return <p className="px-4 pt-1 pb-6 text-center text-muted-foreground text-xs">Your transcriptions will show up here.</p>;
@@ -159,6 +162,8 @@ export function HistoryPanel({
           ref={listRef}
           className="flex max-h-[340px] flex-col gap-3 overflow-y-auto px-2 py-2"
           onScroll={scroll.onScroll}
+          onFocus={(event) => setEditing((event.target as HTMLElement).isContentEditable)}
+          onBlur={() => setEditing(false)}
           onPointerDown={(event) => {
             if (!live || event.button !== 0) return;
             const turn = (event.target as Element).closest("[data-turn-index]");
@@ -406,7 +411,7 @@ function HistoryMessage({
             </div>
           )}
           {turns.map((turn, index) => (
-            <Fragment key={live ? turn.id : index}>
+            <Fragment key={turn.id ?? index}>
               {turn.recording !== undefined && turn.recording !== turns[index - 1]?.recording && marker(turn.recording)}
               {/* Which turn words are selected in (it lays out as if it were not there). */}
               <div data-turn-index={index} className="contents">

@@ -9,6 +9,7 @@ import { Select, SelectItem, SelectPopup, SelectTrigger, SelectValue } from "~/c
 import { Switch } from "~/components/ui/switch";
 import { ViewHeader } from "~/components/ViewHeader";
 import { SCROLL_LIST } from "~/lib/selectStyles";
+import { parseTerms } from "~/lib/sonioxContext";
 import type { Settings } from "~/lib/types";
 import { cn } from "~/lib/utils";
 
@@ -36,6 +37,8 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
   const [error, setError] = useState<string | null>(null);
   // The minutes as typed (it may be empty for a moment).
   const [minutesText, setMinutesText] = useState(String(settings.replayMinutes));
+  // Your words as typed (commas and spaces kept while typing).
+  const [termsText, setTermsText] = useState((settings.terms ?? []).join(", "));
   const modelList = useModelList(draft.sonioxApiKey);
 
   const update = <K extends keyof Settings>(key: K, value: Settings[K]) => setDraft((d) => ({ ...d, [key]: value }));
@@ -195,6 +198,20 @@ export function SettingsView({ settings, notice, onBack, onSaved }: SettingsView
           </div>
         </Row>
 
+        <Row label="Your words" description="Names and English or German words you say, written as you list them here">
+          <textarea
+            value={termsText}
+            rows={3}
+            spellCheck={false}
+            dir="ltr"
+            placeholder="Claude Code, rename, display name, Genau"
+            className="w-full resize-none rounded-lg border border-input bg-background px-2.5 py-1.5 text-foreground text-sm leading-relaxed outline-none placeholder:text-placeholder focus-visible:border-ring focus-visible:ring-[3px] focus-visible:ring-ring/24 focus-visible:ring-inset dark:bg-input/32"
+            onChange={(event) => {
+              setTermsText(event.target.value);
+              update("terms", parseTerms(event.target.value));
+            }}
+          />
+        </Row>
         <Row label="Replay" description="Keeps your mic and the computer's audio on this device, to transcribe later" inline>
           <Switch checked={draft.replay} onCheckedChange={(checked) => update("replay", checked)} />
         </Row>

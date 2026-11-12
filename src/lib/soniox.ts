@@ -8,13 +8,24 @@
  */
 
 import { PAUSE_MS, type PendingRun, type SpeechPiece } from "./dialogue";
+import { FillerFilter, withoutFillers } from "./fillers";
 import { createStreamGate } from "./hissGate";
+import type { SonioxContext } from "./sonioxContext";
 
 const WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 // stt-rt-v6: stronger language switching within a sentence than v5, which Soniox retires on
 // 2026-12-15 (fully compatible; only the model name changes).
 export const SONIOX_MODEL = "stt-rt-v6";
 const SAMPLE_RATE = 16000;
+
+/** A piece of a word, as Soniox sends it. */
+interface Token {
+  text: string;
+  is_final?: boolean;
+  speaker?: string;
+  start_ms?: number;
+  end_ms?: number;
+}
 
 /** What one Soniox message added: the settled words by speaker, and where someone stopped. */
 export interface Speech {
@@ -79,6 +90,8 @@ export interface StartOptions {
   /** The Soniox model id (defaults to SONIOX_MODEL). */
   model?: string;
   languageHints: string[];
+  /** Told to Soniox before it hears anything: how to write mixed languages, and your words. */
+  context?: SonioxContext;
   /** Where to listen first (defaults to the microphone). */
   source?: AudioSource;
   deviceId?: string;
@@ -143,6 +156,19 @@ export function describeStartError(error: unknown, source: AudioSource = "mic"):
     if (error.name === "NotReadableError") return "The microphone is being used by another app.";
   }
   return error instanceof Error ? error.message : "Could not start recording.";
+}
+
+/**
+ * Soniox's socket, its API key given as a WebSocket protocol ("soniox-api-key", then the key):
+ * from 15 January 2027 Soniox refuses a key sent only in the start request. A key that is not a
+ * valid protocol name (it never is one Soniox issued) goes in the start request instead.
+ */
+function openSocket(apiKey: string): { ws: WebSocket; keyed: boolean } {
+  try {
+    return { ws: new WebSocket(WS_URL, ["soniox-api-key", apiKey]), keyed: true };
+  } catch {
+    return { ws: new WebSocket(WS_URL), keyed: false };
+  }
 }
 
 export async function startSoniox(options: StartOptions): Promise<SonioxSession> {
@@ -213,7 +239,8 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   // Audio recorded before the socket opens is queued, not lost. "" means end of audio.
   const queue: (ArrayBuffer | string)[] = [];
   // `pnpm probe` stands in for Soniox with a scripted socket per source.
-  const ws = window.__fdTestSocket?.(options.source ?? "mic") ?? new WebSocket(WS_URL);
+  const test = window.__fdTestSocket?.(options.source ?? "mic");
+  const { ws, keyed } = test ? { ws: test, keyed: false } : openSocket(options.apiKey);
 
   const sendOrQueue = (data: ArrayBuffer | string) => {
     if (ws.readyState === WebSocket.OPEN) ws.send(data);
@@ -230,13 +257,17 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
   ws.onopen = () => {
     ws.send(
       JSON.stringify({
-        api_key: options.apiKey,
+        ...(keyed ? {} : { api_key: options.apiKey }),
         model: options.model || SONIOX_MODEL,
         audio_format: "pcm_s16le",
         sample_rate: SAMPLE_RATE,
         num_channels: 1,
         ...(options.languageHints.length ? { language_hints: options.languageHints } : {}),
+        ...(options.context ? { context: options.context } : {}),
         enable_endpoint_detection: true,
+        // Soniox's advice for dictation with pauses mid-sentence: an endpoint (which settles the
+        // words before it) a little less readily.
+        endpoint_sensitivity: -0.3,
         // Follow switches between languages (e.g. Arabic, then German) sentence by sentence.
         // The languages picked in the composer are the main lever: hints bias recognition
         // toward them, so a language that is spoken should be among them (or none: auto).
@@ -246,6 +277,9 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     );
     for (const data of queue.splice(0)) ws.send(data);
   };
+
+  // Hesitations (آه، أمم، um) are left out; the last settled word waits for the next to be known.
+  const fillers = new FillerFilter<Token>();
 
   ws.onmessage = (event) => {
     let message: {
@@ -263,23 +297,34 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
       fail(`Soniox error ${message.error_code}: ${message.error_message ?? "unknown error"}`);
       return;
     }
-    if (Array.isArray(message.tokens)) {
-      let nextPending = "";
+    if (Array.isArray(message.tokens) || message.finished) {
+      const tokens = (message.tokens ?? []).filter((token): token is Token => typeof token?.text === "string");
+      const settled = fillers.push(
+        tokens.filter((token) => token.is_final),
+        tokens.filter((token) => !token.is_final),
+      );
+      if (message.finished) settled.push(...fillers.flush());
+      const pending = [...fillers.holding(), ...withoutFillers(tokens.filter((token) => !token.is_final))];
       const speech: Speech = { settled: [], pending: [] };
-      for (const token of message.tokens) {
-        if (typeof token?.text !== "string") continue;
-        if (token.text === "<end>") speech.settled.push("end");
-        if (token.text === "<end>" || token.text === "<fin>") continue;
+      let nextPending = "";
+      const add = (token: Token, runs: (SpeechPiece | PendingRun)[]) => {
+        if (token.text === "<end>") runs.push("end");
+        if (token.text === "<end>" || token.text === "<fin>") return;
         // Consecutive words of one speaker make one run (not across a pause, which starts a paragraph).
-        const runs: (SpeechPiece | PendingRun)[] = token.is_final ? speech.settled : speech.pending;
         const last = runs.at(-1);
         const paused = last && last !== "end" && token.start_ms !== undefined && last.endMs !== undefined && token.start_ms - last.endMs >= PAUSE_MS;
         if (last && last !== "end" && last.speaker === token.speaker && !paused) {
           last.text += token.text;
           if (token.end_ms !== undefined) last.endMs = token.end_ms;
         } else runs.push({ speaker: token.speaker, text: token.text, startMs: token.start_ms, endMs: token.end_ms });
-        if (token.is_final) finalText += token.text;
-        else nextPending += token.text;
+      };
+      for (const token of settled) {
+        add(token, speech.settled);
+        if (token.text !== "<end>" && token.text !== "<fin>") finalText += token.text;
+      }
+      for (const token of pending) {
+        add(token, speech.pending);
+        nextPending += token.text;
       }
       pendingText = nextPending;
       options.onText(finalText, pendingText, speech);

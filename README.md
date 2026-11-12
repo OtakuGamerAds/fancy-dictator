@@ -10,12 +10,20 @@ into a session you can read, edit, copy and translate while it is still being re
   the session shown under it, filling in as you speak (the newest words stay in view unless you
   scroll up to read; **Scroll to end** follows them again). Talking again carries on in the
   session shown, in a new bubble (each recording its own, even with one voice), and so does
-  speaking again after 5 seconds of silence; the **new session** button (the pen, at the top
+  speaking again after 10 seconds of silence; the **new session** button (the pen, at the top
   right) starts a new one (it stays shown, empty, if a recording into it ends with nothing said).
 - What Soniox hears is muted while nobody speaks (the hiss gate of livecall-caption-web-v2: a
   "Remove Silence" gate told by a voice detector 40 ms ahead), so the hiss and murmur between
   words are not written as words, live and in Replay's transcriptions. The recordings kept are
   as heard.
+- Hesitations (آه، أمم، um, uh, äh) are left out, live and in Replay: Soniox writes them as
+  words and has no option to leave them out, so the app drops them (each settled word waits,
+  faint, until the next one shows it was not one).
+- Mixed languages: Soniox is told, before it hears anything, that Arabic is mixed with the other
+  languages picked (English and German words written in Latin letters) and given **Your words**
+  (Settings): names and English or German words you say, written as you list them ("rename",
+  not "رينيم"; "Claude Code", not "كلود كود"). It starts with a list of software words; add your
+  own.
 - **conversation** listens to the computer's audio too (the people on a call, a video). While
   recording, the mic and computer buttons next to **Stop** mute each one on its own (red while
   muted): unmuting the computer makes it a conversation, and both muted pauses the recording
@@ -39,8 +47,9 @@ into a session you can read, edit, copy and translate while it is still being re
   is at the end of the sessions' list.
   Long bubbles fold to 3 lines (while recording, all but the one being said): click into one to
   edit it, even while it is being recorded (a saved session is saved when you click away), or
-  unfold them all with **Show all** on the bar. Drag over words to select them, across as many
-  bubbles as you like, and copy them.
+  unfold them all with **Show all** on the bar. Words dragged over (or double-clicked) in a
+  bubble can be typed over at once; words still coming land after them, and the list holds
+  still while you edit. Drag across as many bubbles as you like to select and copy them.
 - Select words in a session (while it is being recorded too) and the left of the bar offers to
   translate them: the language (remembered) and the translate icon. The translation shows under
   the bubble they were selected in, with its own copy icon. Google Translate's free service does

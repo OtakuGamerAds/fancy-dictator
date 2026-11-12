@@ -21,7 +21,7 @@ contextBridge.exposeInMainWorld("api", {
   readReplay: (file) => ipcRenderer.invoke("replay:read", file),
   trimReplay: (ms) => ipcRenderer.invoke("replay:trim", ms),
   clearReplay: () => ipcRenderer.invoke("replay:clear"),
-  transcribeReplay: (webm) => ipcRenderer.invoke("replay:transcribe", webm),
+  transcribeReplay: (webm, context) => ipcRenderer.invoke("replay:transcribe", webm, context),
   translate: (text, to) => ipcRenderer.invoke("translate:text", text, to),
   discardAudio: (ids) => ipcRenderer.invoke("audio:discard", ids),
   copy: (text) => ipcRenderer.invoke("clipboard:write", text),

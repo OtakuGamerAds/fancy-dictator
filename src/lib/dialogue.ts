@@ -28,6 +28,8 @@ export type CopyWhich = "all" | number;
 
 /** One paragraph of the dialogue, as saved with a message. */
 export interface Turn {
+  /** Kept with a saved message, so a bubble being edited stays one when the recording ends. */
+  id?: string;
   speaker: Voice;
   text: string;
   /** The recording it was said in (1, 2, …, as the session's clips are numbered). */
@@ -57,7 +59,7 @@ export interface PendingRun {
 }
 
 /** Silence this long, then words again: a new paragraph, as if the recording had been stopped. */
-export const PAUSE_MS = 5000;
+export const PAUSE_MS = 10_000;
 
 /** Each voice's number: 1 for whoever spoke first (turns without words aside). */
 export function speakerNumbers(turns: readonly { speaker: Voice; text: string; pending?: string }[]): Map<Voice, number> {

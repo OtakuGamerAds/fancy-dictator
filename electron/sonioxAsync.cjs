@@ -47,9 +47,9 @@ async function asyncModel(apiKey) {
 
 /**
  * The words of a WebM recording: [{ text, start_ms, end_ms, speaker }]. `languageHints` as
- * in the composer.
+ * in the composer; `context` as live (src/lib/sonioxContext.ts).
  */
-async function transcribe(apiKey, webm, languageHints) {
+async function transcribe(apiKey, webm, languageHints, context) {
   if (!apiKey) throw new Error("Add your Soniox API key first");
   const form = new FormData();
   form.append("file", new Blob([Buffer.from(webm)], { type: "audio/webm" }), "replay.webm");
@@ -62,6 +62,7 @@ async function transcribe(apiKey, webm, languageHints) {
       ...(languageHints?.length ? { language_hints: languageHints } : {}),
       enable_language_identification: true,
       enable_speaker_diarization: true,
+      ...(context && typeof context === "object" ? { context } : {}),
     });
     const started = Date.now();
     while (transcription.status !== "completed") {

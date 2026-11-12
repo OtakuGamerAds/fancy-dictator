@@ -63,25 +63,44 @@ export function useFold(foldable: boolean, text: string) {
 
 /**
  * A click anywhere on a bubble edits its words (not on its recordings), the caret where it was
- * clicked (off the words, at their end). Not after dragging over words to select them, maybe
- * across bubbles: they stay selected, to copy.
+ * clicked (off the words, at their end). Words dragged over (or double-clicked) in it are edited
+ * too, still selected, so typing replaces them; dragged over across bubbles they stay plain
+ * text, selected, to copy or translate.
  */
 export function editOnClick(event: MouseEvent<HTMLElement>) {
-  const words = event.currentTarget.querySelector<HTMLElement>("[data-editable]");
+  const bubble = event.currentTarget;
+  const words = bubble.querySelector<HTMLElement>("[data-editable]");
   const target = event.target as HTMLElement;
   if (!words || words.isContentEditable || target.closest("button, [data-slot=context-chip]")) return;
   const selection = getSelection();
-  if (selection && !selection.isCollapsed) return;
+  if (!selection) return;
+  if (!selection.isCollapsed) {
+    const { anchorNode, anchorOffset, focusNode, focusOffset } = selection;
+    if (!anchorNode || !focusNode || !bubble.contains(anchorNode) || !bubble.contains(focusNode)) return;
+    // Faint words still being said, or the recording above, are not edited: the selection
+    // stops where the words do.
+    const within = (node: Node, offset: number): [Node, number] => {
+      if (words.contains(node)) return [node, offset];
+      const after = words.compareDocumentPosition(node) & Node.DOCUMENT_POSITION_FOLLOWING;
+      return after ? [words, words.childNodes.length] : [words, 0];
+    };
+    const [anchor, anchorAt] = within(anchorNode, anchorOffset);
+    const [focus, focusAt] = within(focusNode, focusOffset);
+    words.contentEditable = "plaintext-only";
+    words.focus({ preventScroll: true });
+    selection.setBaseAndExtent(anchor, anchorAt, focus, focusAt);
+    return;
+  }
   words.contentEditable = "plaintext-only";
-  words.focus();
+  words.focus({ preventScroll: true });
   let caret = document.caretRangeFromPoint(event.clientX, event.clientY);
   if (!caret || !words.contains(caret.startContainer)) {
     caret = document.createRange();
     caret.selectNodeContents(words);
     caret.collapse(false);
   }
-  selection?.removeAllRanges();
-  selection?.addRange(caret);
+  selection.removeAllRanges();
+  selection.addRange(caret);
 }
 
 export function speakerColors(number: number) {

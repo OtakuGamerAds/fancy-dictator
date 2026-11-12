@@ -1,3 +1,5 @@
+import type { SonioxContext } from "./sonioxContext";
+
 import type { Turn } from "./dialogue";
 
 export interface Settings {
@@ -13,6 +15,8 @@ export interface Settings {
   replayMinutes: number;
   /** The language selected words are translated into. */
   translateTo: string;
+  /** Your words (names, English and German terms): Soniox writes them as listed. */
+  terms: string[];
 }
 
 /** A piece of Replay's recording (about half a minute of one source). */
@@ -90,7 +94,7 @@ export interface DesktopApi {
   /** Forget everything before `ms` (after a part was transcribed). */
   trimReplay(ms: number): Promise<void>;
   clearReplay(): Promise<void>;
-  transcribeReplay(webm: ArrayBuffer): Promise<TimedToken[]>;
+  transcribeReplay(webm: ArrayBuffer, context?: SonioxContext): Promise<TimedToken[]>;
   /** Selected words in another language (Google Translate), or why not. */
   translate(text: string, to: string): Promise<{ text: string; from: string | null } | { error: string }>;
   /** Erase the audio of deleted messages (any that are back in the history are kept). */
@@ -128,6 +132,7 @@ declare global {
       apply(name: string): void;
       probe(): Promise<unknown>;
       click(selector: string): Promise<boolean>;
+      live: import("../App").LiveProbe;
     };
   }
 }
