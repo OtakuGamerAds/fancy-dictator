@@ -16,11 +16,9 @@ into a session you can read, edit, copy and translate while it is still being re
   "Remove Silence" gate told by a voice detector 40 ms ahead), so the hiss and murmur between
   words are not written as words, live and in Replay's transcriptions. The recordings kept are
   as heard.
-- Hesitations (آه، أمم، um, uh, äh) are left out, live and in Replay: Soniox writes them as
-  words and has no option to leave them out, so the app drops them (each settled word waits,
-  faint, until the next one shows it was not one).
-- Mixed languages: Soniox is told, before it hears anything, that Arabic is mixed with the other
-  languages picked (English and German words written in Latin letters) and given **Your words**
+- What is written is left to Soniox, told what we want before it hears anything (its context):
+  Arabic mixed with the other languages picked, each word written in the language it is said in
+  ("الـ preference", not "البريفرنس"), without hesitations (آه، أمم); and **Your words**
   (Settings): names and English or German words you say, written as you list them ("rename",
   not "رينيم"; "Claude Code", not "كلود كود"). It starts with a list of software words; add your
   own.

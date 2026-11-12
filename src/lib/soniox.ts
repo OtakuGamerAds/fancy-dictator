@@ -8,7 +8,6 @@
  */
 
 import { PAUSE_MS, type PendingRun, type SpeechPiece } from "./dialogue";
-import { FillerFilter, withoutFillers } from "./fillers";
 import { createStreamGate } from "./hissGate";
 import type { SonioxContext } from "./sonioxContext";
 
@@ -17,15 +16,6 @@ const WS_URL = "wss://stt-rt.soniox.com/transcribe-websocket";
 // 2026-12-15 (fully compatible; only the model name changes).
 export const SONIOX_MODEL = "stt-rt-v6";
 const SAMPLE_RATE = 16000;
-
-/** A piece of a word, as Soniox sends it. */
-interface Token {
-  text: string;
-  is_final?: boolean;
-  speaker?: string;
-  start_ms?: number;
-  end_ms?: number;
-}
 
 /** What one Soniox message added: the settled words by speaker, and where someone stopped. */
 export interface Speech {
@@ -278,9 +268,6 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
     for (const data of queue.splice(0)) ws.send(data);
   };
 
-  // Hesitations (آه، أمم، um) are left out; the last settled word waits for the next to be known.
-  const fillers = new FillerFilter<Token>();
-
   ws.onmessage = (event) => {
     let message: {
       tokens?: { text?: string; is_final?: boolean; speaker?: string; start_ms?: number; end_ms?: number }[];
@@ -297,34 +284,23 @@ export async function startSoniox(options: StartOptions): Promise<SonioxSession>
       fail(`Soniox error ${message.error_code}: ${message.error_message ?? "unknown error"}`);
       return;
     }
-    if (Array.isArray(message.tokens) || message.finished) {
-      const tokens = (message.tokens ?? []).filter((token): token is Token => typeof token?.text === "string");
-      const settled = fillers.push(
-        tokens.filter((token) => token.is_final),
-        tokens.filter((token) => !token.is_final),
-      );
-      if (message.finished) settled.push(...fillers.flush());
-      const pending = [...fillers.holding(), ...withoutFillers(tokens.filter((token) => !token.is_final))];
-      const speech: Speech = { settled: [], pending: [] };
+    if (Array.isArray(message.tokens)) {
       let nextPending = "";
-      const add = (token: Token, runs: (SpeechPiece | PendingRun)[]) => {
-        if (token.text === "<end>") runs.push("end");
-        if (token.text === "<end>" || token.text === "<fin>") return;
+      const speech: Speech = { settled: [], pending: [] };
+      for (const token of message.tokens) {
+        if (typeof token?.text !== "string") continue;
+        if (token.text === "<end>") speech.settled.push("end");
+        if (token.text === "<end>" || token.text === "<fin>") continue;
         // Consecutive words of one speaker make one run (not across a pause, which starts a paragraph).
+        const runs: (SpeechPiece | PendingRun)[] = token.is_final ? speech.settled : speech.pending;
         const last = runs.at(-1);
         const paused = last && last !== "end" && token.start_ms !== undefined && last.endMs !== undefined && token.start_ms - last.endMs >= PAUSE_MS;
         if (last && last !== "end" && last.speaker === token.speaker && !paused) {
           last.text += token.text;
           if (token.end_ms !== undefined) last.endMs = token.end_ms;
         } else runs.push({ speaker: token.speaker, text: token.text, startMs: token.start_ms, endMs: token.end_ms });
-      };
-      for (const token of settled) {
-        add(token, speech.settled);
-        if (token.text !== "<end>" && token.text !== "<fin>") finalText += token.text;
-      }
-      for (const token of pending) {
-        add(token, speech.pending);
-        nextPending += token.text;
+        if (token.is_final) finalText += token.text;
+        else nextPending += token.text;
       }
       pendingText = nextPending;
       options.onText(finalText, pendingText, speech);

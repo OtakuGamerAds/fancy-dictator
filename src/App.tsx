@@ -20,7 +20,6 @@ import {
   type Turn,
   voiceOf,
 } from "~/lib/dialogue";
-import { withoutFillers } from "~/lib/fillers";
 import { sonioxContext } from "~/lib/sonioxContext";
 import {
   type AudioSource,
@@ -626,8 +625,7 @@ export function App() {
           end,
           true,
         );
-        // Hesitations (آه، أمم، um) left out, as live.
-        return { source: clip.source, words: withoutFillers(await window.api.transcribeReplay(heard ?? clip.webm, replayContext())) };
+        return { source: clip.source, words: await window.api.transcribeReplay(heard ?? clip.webm, replayContext()) };
       }),
     );
     return { clips, turns: turnsFromWords(streams) };
